@@ -1,0 +1,41 @@
+img2xterm
+
+A program which can convert bitmap images to a series of control sequences and
+block characters suitable for display on many popular 256-color terminal
+emulators, including xterm, rxvt-unicode and GNU Screen.
+
+Inspration was taken from the img2cow software available here:
+
+http://srsfckn.biz/cows/img2cow.c
+
+This software could take a bitmap image and convert it to a .cow file, suitable
+for use in cowsay and cowthink. img2xterm is a complete rewrite of img2cow. It
+aims to improve upon the color selection and block printing algorithms used in
+img2cow, while providing more generic output, without the header and footer
+required for use in cowsay (although this functionality is provided by the
+img2cow script here, which replicates the behaviour of the old program.) The
+basis for the new color conversion algorithm was taken from Wolfgang Frisch's
+(xororand@frexx.de) xterm256-conv, available here:
+
+http://frexx.de/xterm-256-notes/
+
+Although modification was required to remove the first 16 colors (as they vary
+from term to term and are normally user configurable) and fix the range of the
+grey ramp.
+
+To install, simply run:
+make
+sudo make install
+
+To display an image on a compatible 256-color terminal:
+img2xterm image.png
+
+To generate a cowfile:
+img2cow image.png > image.cow
+sudo cp image.cow /usr/share/cows
+
+A GIMP palette containing the upper 240 colors used in xterm is also available
+and can be used for dithering images before conversion. Install with:
+cd extra/
+make
+cp xterm-256color.gpl ~/.gimp-2.6/palettes/

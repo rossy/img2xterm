@@ -34,51 +34,25 @@
 
 unsigned char* colortable;
 const unsigned char valuerange[] = { 0x00, 0x5F, 0x87, 0xAF, 0xD7, 0xFF };
-const unsigned char basic16[16][3] = {
-	{ 0x00, 0x00, 0x00 },
-	{ 0xCD, 0x00, 0x00 },
-	{ 0x00, 0xCD, 0x00 },
-	{ 0xCD, 0xCD, 0x00 },
-	{ 0x00, 0x00, 0xEE },
-	{ 0xCD, 0x00, 0xCD },
-	{ 0x00, 0xCD, 0xCD },
-	{ 0xE5, 0xE5, 0xE5 },
-	{ 0x7F, 0x7F, 0x7F },
-	{ 0xFF, 0x00, 0x00 },
-	{ 0x00, 0xFF, 0x00 },
-	{ 0xFF, 0xFF, 0x00 },
-	{ 0x5C, 0x5C, 0xFF },
-	{ 0xFF, 0x00, 0xFF },
-	{ 0x00, 0xFF, 0xFF },
-	{ 0xFF, 0xFF, 0xFF },
-};
 unsigned long oldfg = 256;
 unsigned long oldbg = 256;
 
 void xterm2rgb(unsigned char color, unsigned char* rgb)
 {
-	if (color < 16)
-	{
-		rgb[0] = basic16[color][0];
-		rgb[1] = basic16[color][1];
-		rgb[2] = basic16[color][2];
-	}
-	else if (color < 232)
+	if (color < 232)
 	{
 		color -= 16;
 		rgb[0] = valuerange[(color / 36) % 6];
 		rgb[1] = valuerange[(color / 6) % 6];
 		rgb[2] = valuerange[color % 6];
 	}
-	else if (color < 256)
-		rgb[0] = rgb[1] = rgb[2] = 8 + (color - 232) * 10;
 	else
-		rgb[0] = rgb[1] = rgb[2] = 0;
+		rgb[0] = rgb[1] = rgb[2] = 8 + (color - 232) * 10;
 }
 
 unsigned long rgb2xterm(unsigned char r, unsigned char g, unsigned char b)
 {
-	unsigned long i = 0, d, ret = 0, smallest_distance = UINT_MAX;
+	unsigned long i = 16, d, ret = 0, smallest_distance = UINT_MAX;
 	
 	for (; i < 256; i++)
 	{
@@ -150,9 +124,9 @@ unsigned long fillrow(PixelWand** pixels, unsigned long* row,
 			row[i] = 256;
 		else
 		{
-			row[i] = rgb2xterm((int)(PixelGetRed(pixels[i]) * 255.0),
-				(int)(PixelGetGreen(pixels[i]) * 255.0),
-				(int)(PixelGetBlue(pixels[i]) * 255.0));
+			row[i] = rgb2xterm((unsigned long)(PixelGetRed(pixels[i]) * 255.0),
+				(unsigned long)(PixelGetGreen(pixels[i]) * 255.0),
+				(unsigned long)(PixelGetBlue(pixels[i]) * 255.0));
 			lastpx = i;
 		}
 	}
@@ -207,7 +181,7 @@ int main(int argc, char** argv)
 	}
 	
 	colortable = malloc(256 * 3 * sizeof(unsigned char));
-	for (i = 0; i < 256; i ++)
+	for (i = 16; i < 256; i ++)
 		xterm2rgb(i, colortable + i * 3);
 	
 	fputs("\e[0m", outfile);
