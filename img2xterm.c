@@ -31,11 +31,26 @@
 #include <string.h>
 #include <limits.h>
 #include <ImageMagick/wand/MagickWand.h>
+#ifndef NO_CURSES
+#include <term.h>
+#endif
+
+enum {
+	color_undef,
+	color_transparent,
+};
 
 unsigned char* colortable;
 const unsigned char valuerange[] = { 0x00, 0x5F, 0x87, 0xAF, 0xD7, 0xFF };
-unsigned long oldfg = 256;
-unsigned long oldbg = 256;
+unsigned long oldfg = color_undef;
+unsigned long oldbg = color_undef;
+
+#ifndef NO_CURSES
+int use_terminfo = 0;
+char* ti_setb;
+char* ti_setf;
+char* ti_op;
+#endif
 
 void xterm2rgb(unsigned char color, unsigned char* rgb)
 {
@@ -73,7 +88,7 @@ void bifurcate(FILE* file, unsigned long color1, unsigned long color2)
 {
 	unsigned long fg = oldfg;
 	unsigned long bg = oldbg;
-	char* str = "▄";
+	char* str = "\xe2\x96\x84";
 	
 	if (color1 == color2)
 	{
@@ -81,9 +96,9 @@ void bifurcate(FILE* file, unsigned long color1, unsigned long color2)
 		str = " ";
 	}
 	else
-		if (color2 == 256)
+		if (color2 == color_transparent)
 		{
-			str = "▀";
+			str = "\xe2\x96\x80";
 			bg = color2;
 			fg = color1;
 		}
@@ -93,18 +108,38 @@ void bifurcate(FILE* file, unsigned long color1, unsigned long color2)
 			fg = color2;
 		}
 	
+#ifndef NO_CURSES
+	if (use_terminfo)
+	{
+		if (bg != oldbg)
+		{
+			if (bg == color_transparent)
+			{
+				fputs(ti_op, file);
+				oldfg = color_undef;
+			}
+			else
+				fputs(tparm(ti_setb, bg), file);
+		}
+		
+		if (fg != oldfg)
+			fputs(tparm(ti_setf, fg), file);
+	}
+	else
+#endif
 	if (bg != oldbg)
 	{
-		if (bg == 256)
-		{
-			fputs("\e[0m", file);
-			oldfg = 256;
-		}
+		if (bg == color_transparent)
+			fputs("\e[49", file);
 		else
-			fprintf(file, "\e[48;5;%lum", bg);
+			fprintf(file, "\e[48;5;%lu", bg);
+		
+		if (fg != oldfg)
+			fprintf(file, ";38;5;%lum", fg);
+		else
+			fputc('m', file);
 	}
-	
-	if (fg != oldfg)
+	else if (fg != oldfg)
 		fprintf(file, "\e[38;5;%lum", fg);
 	
 	oldbg = bg;
@@ -121,7 +156,7 @@ unsigned long fillrow(PixelWand** pixels, unsigned long* row,
 	for (; i < width; i ++)
 	{
 		if (PixelGetAlpha(pixels[i]) < 0.5)
-			row[i] = 256;
+			row[i] = color_transparent;
 		else
 		{
 			row[i] = rgb2xterm((unsigned long)(PixelGetRed(pixels[i]) * 255.0),
@@ -134,32 +169,146 @@ unsigned long fillrow(PixelWand** pixels, unsigned long* row,
 	return lastpx + 1;
 }
 
+void usage(int ret, char* binname)
+{
+	fprintf(ret ? stderr: stdout,
+		"Usage: %s [ -chi ] [ -l stem-length ] [ -m margin ] [ -s stem-margin "
+		"]\n    [ infile ] [ outfile ]\n"
+		"Convert bitmap images to 256 color block elements suitable for"
+		" display in xterm\nand similar terminal emulators.\n\n"
+		"Options:\n"
+		"  -c, --cow                   generate a cowfile header\n"
+		"                              (default behavior if invoked as"
+		" img2cow)\n"
+		"  -h, --help                  display this message\n"
+#ifndef NO_CURSES
+		"  -i, --terminfo              use terminfo to set the colors of each"
+		" block\n"
+#endif
+		"  -l, --stem-length <length>  length of the speech bubble stem when"
+		" generating\n"
+		"                              cowfiles (default: 4)\n"
+		"  -m, --margin <width>        add a margin to the left of the image\n"
+		"  -s, --stem-margin <width>   margin for the speech bubble stem when"
+		" generating\n"
+		"                              cowfiles (default: 11)\n"
+		, binname);
+	exit(ret);
+}
+
 int main(int argc, char** argv)
 {
-	if (argc > 3 || (argc == 2 && !strcmp(argv[1], "--help")))
-	{
-		fprintf(argc == 2 ? stdout : stderr,
-			"%s -- convert images to 256 color block elements\n"
-			"usage: %s [infile] [outfile]\n", argv[0], argv[0]);
-		return argc == 2 ? 0 : 1;
-	}
-	
-	char* infile = argc > 1 ? argv[1] : "/dev/stdin";
-	FILE* outfile = argc > 2 ? fopen(argv[2], "w") : stdout;
+	char* stdin_str = "/dev/stdin";
+	char* infile = stdin_str, * outfile_str = NULL, * binname = *argv, c;
+	FILE* outfile = stdout;
 	
 	size_t width1, width2;
-	unsigned long i, *row1, *row2, lastpx1, lastpx2;
+	unsigned long i, j, * row1, * row2, lastpx1, lastpx2, margin = 0;
+	
+	int cowheader = !strcmp(binname, "img2cow");
+	unsigned long stemlen = 4, stemmargin = 11;
 	
 	MagickWand* science;
 	PixelIterator* iterator;
 	PixelWand** pixels;
 	
-	if (!outfile)
+	while (*++argv)
+		if (**argv == '-')
+		{
+			while ((c = *++*argv))
+				switch (c)
+				{
+					case '-':
+						if (!strcmp("help", ++*argv))
+							usage(0, binname);
+						else if (!strcmp("cow", *argv))
+							cowheader = 1;
+						else if (!strcmp("stem-length", *argv))
+						{
+							if (!*++argv || !sscanf(*argv, "%lu", &stemlen))
+								usage(1, binname);
+						}
+						else if (!strcmp("margin", *argv))
+						{
+							if (!*++argv || !sscanf(*argv, "%lu", &margin))
+								usage(1, binname);
+						}
+						else if (!strcmp("stem-margin", *argv))
+						{
+							if (!*++argv || !sscanf(*argv, "%lu", &stemmargin))
+								usage(1, binname);
+						}
+#ifndef NO_CURSES
+						else if (!strcmp("terminfo", *argv))
+							use_terminfo = 1;
+#endif
+						else
+						{
+							fprintf(stderr,
+								"%s: unrecognised long option --%s\n",
+								binname, *argv);
+							usage(1, binname);
+						}
+						goto nextarg;
+					case 'h':
+						usage(0, binname);
+						break;
+					case 'c':
+						cowheader = 1;
+						break;
+#ifndef NO_CURSES
+					case 'i':
+						use_terminfo = 1;
+						break;
+#endif
+					case 'l':
+						if (*++*argv || !*++argv || !sscanf(*argv, "%lu",
+							&stemlen))
+							usage(1, binname);
+						goto nextarg;
+					case 'm':
+						if (*++*argv || !*++argv || !sscanf(*argv, "%lu",
+							&margin))
+							usage(1, binname);
+						goto nextarg;
+					case 's':
+						if (*++*argv || !*++argv || !sscanf(*argv, "%lu",
+							&stemmargin))
+							usage(1, binname);
+						goto nextarg;
+					default:
+						fprintf(stderr, "%s: unrecognised option -%c",
+							binname, *--*argv);
+						usage(1, binname);
+				}
+			nextarg:
+			continue;
+		}
+		else if (infile == stdin_str)
+			infile = *argv;
+		else if (!outfile_str)
+			outfile_str = *argv;
+		else
+			usage(1, binname);
+	
+#ifndef NO_CURSES
+	if (use_terminfo)
 	{
-		fprintf(stderr, "%s: couldn't open output file %s\n", argv[0],
-			argc > 2 ? argv[2] : "<stdout>");
-		return 1;
+		if (setupterm(NULL, fileno(stdout), NULL))
+			return 5;
+		if (((ti_op = tigetstr("op")) == (void*)-1 &&
+			(ti_op = tigetstr("sgr0")) == (void*)-1) ||
+			(ti_setb = tigetstr("setb")) == (void*)-1 ||
+			(ti_setf = tigetstr("setf")) == (void*)-1 ||
+			!tiparm(ti_setb, 255) ||
+			!tiparm(ti_setf, 255))
+		{
+			fprintf(stderr,
+				"%s: terminal doesn't support required features\n", binname);
+			return 5;
+		}
 	}
+#endif
 	
 	MagickWandGenesis();
 	atexit(MagickWandTerminus);
@@ -168,24 +317,43 @@ int main(int argc, char** argv)
 	if (!MagickReadImage(science, infile))
 	{
 		DestroyMagickWand(science);
-		fprintf(stderr, "%s: couldn't open input file %s\n", argv[0],
-			argc > 1 ? infile : "<stdin>");
-		return 2;
+		fprintf(stderr, "%s: couldn't open input file %s\n", binname,
+			infile == stdin_str ? "<stdin>" : infile);
+		return 3;
 	}
 	
 	if (!(iterator = NewPixelIterator(science)))
 	{
 		DestroyMagickWand(science);
-		fprintf(stderr, "%s: out of memory\n", argv[0]);
-		return 3;
+		fprintf(stderr, "%s: out of memory\n", binname);
+		return 4;
 	}
+	
+	if (outfile_str)
+		if (!(outfile = fopen(outfile_str, "w")))
+		{
+			fprintf(stderr, "%s: couldn't open output file %s\n", binname,
+				outfile_str);
+			return 2;
+		}
 	
 	colortable = malloc(256 * 3 * sizeof(unsigned char));
 	for (i = 16; i < 256; i ++)
 		xterm2rgb(i, colortable + i * 3);
 	
-	fputs("\e[0m", outfile);
-	while ((pixels = PixelGetNextIteratorRow(iterator, &width1)))
+	if (cowheader)
+	{
+		fputs("$the_cow =<<EOC;\n", outfile);
+		for (i = 0; i < stemlen; i ++)
+		{
+			for (j = 0; j < stemmargin + i; j ++)
+				fputc(' ', outfile);
+			fputs("$thoughts\n", outfile);
+		}
+	}
+	
+	pixels = PixelGetNextIteratorRow(iterator, &width1);
+	while (pixels)
 	{
 		row1 = malloc(width1 * sizeof(unsigned long));
 		lastpx1 = fillrow(pixels, row1, width1);
@@ -200,22 +368,53 @@ int main(int argc, char** argv)
 		else
 			row2 = NULL;
 		
+		for (i = 0; i < margin; i ++)
+			fputc(' ', outfile);
+		
 		for (i = 0; i < lastpx1; i ++)
-			bifurcate(outfile, i < width1 ? row1[i] : 256,
-				i < width2 ? row2 ? row2[i] : 256 : 256);
+			bifurcate(outfile, i < width1 ? row1[i] : color_transparent,
+				i < width2 ? row2 ? row2[i] : color_transparent :
+				color_transparent);
 		
 		free(row1);
 		if (row2)
 			free(row2);
 		
-		fputs("\e[0m\n", outfile);
-		oldfg = 256;
-		oldbg = 256;
+		if ((pixels = PixelGetNextIteratorRow(iterator, &width1)))
+#ifndef NO_CURSES
+			if (use_terminfo)
+			{
+				fprintf(outfile, "%s\n", ti_op);
+				oldbg = color_transparent;
+				oldfg = color_undef;
+			}
+			else
+#endif
+			if (oldbg != color_transparent)
+			{
+				fputs("\e[49m\n", outfile);
+				oldbg = color_transparent;
+			}
+			else
+				fputc('\n', outfile);
+#ifndef NO_CURSES
+		else if (use_terminfo)
+			fprintf(outfile, "%s\n", ti_op);
+#endif
+		else if (oldbg == color_transparent)
+			fputs("\e[39m\n", outfile);
+		else
+			fputs("\e[39;49m\n", outfile);
 	}
+	
+	if (cowheader)
+		fputs("\nEOC\n", outfile);
 	
 	DestroyPixelIterator(iterator);
 	DestroyMagickWand(science);
 	free(colortable);
+	if (outfile != stdout)
+		fclose(outfile);
 	
 	return 0;
 }
