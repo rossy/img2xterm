@@ -10,7 +10,7 @@ img2xterm: img2xterm.c
 
 all: img2xterm
 
-install: img2xterm img2cow
+install: img2xterm
 	install -m 0755 img2xterm $(PREFIX)/bin
 	ln -fs $(PREFIX)/bin/img2xterm $(PREFIX)/bin/img2cow
 
