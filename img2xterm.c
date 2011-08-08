@@ -28,7 +28,7 @@
 #include <string.h>
 #include <limits.h>
 #include <math.h>
-#include <ImageMagick/wand/MagickWand.h>
+#include <wand/MagickWand.h>
 #ifndef NO_CURSES
 #include <term.h>
 #endif
@@ -511,8 +511,8 @@ int main(int argc, char** argv)
 			(ti_op = tigetstr("sgr0")) == (void*)-1) ||
 			(ti_setb = tigetstr("setb")) == (void*)-1 ||
 			(ti_setf = tigetstr("setf")) == (void*)-1 ||
-			!tiparm(ti_setb, 255) ||
-			!tiparm(ti_setf, 255))
+			!tparm(ti_setb, 255) ||
+			!tparm(ti_setf, 255))
 		{
 			fprintf(stderr,
 				"%s: terminal doesn't support required features\n", binname);
