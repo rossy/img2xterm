@@ -23,6 +23,7 @@
  * xterm256-conv2 by Wolfgang Frisch (xororand@frexx.de)
  */
 
+#define _GNU_SOURCE
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -31,6 +32,10 @@
 #include <wand/MagickWand.h>
 #ifndef NO_CURSES
 #include <term.h>
+#endif
+#ifndef INFINITY
+#include <float.h>
+#define INFINITY DBL_MAX
 #endif
 
 enum {
@@ -374,7 +379,7 @@ Examples:\n\
 	exit(ret);
 }
 
-const char* basename(const char* string)
+const char* basename2(const char* string)
 {
 	const char* ret = string;
 	for (; *string; string++)
@@ -395,7 +400,7 @@ int main(int argc, char** argv)
 	size_t width1, width2;
 	unsigned long i, j, * row1, * row2, color1, color2, lastpx1, lastpx2, margin = 0;
 	
-	int cowheader = !memcmp(basename(binname), "img2cow", 7), background = 0;
+	int cowheader = !memcmp(basename2(binname), "img2cow", 7), background = 0;
 	unsigned long stemlen = 4, stemmargin = 11;
 	
 	MagickWand* science;
