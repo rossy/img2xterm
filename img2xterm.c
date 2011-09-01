@@ -30,9 +30,11 @@
 #include <limits.h>
 #include <math.h>
 #include <wand/MagickWand.h>
+
 #ifndef NO_CURSES
 #include <term.h>
 #endif
+
 #ifndef INFINITY
 #include <float.h>
 #define INFINITY DBL_MAX
@@ -49,7 +51,7 @@ double* labtable;
 const unsigned char valuerange[] = { 0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff };
 unsigned long oldfg = color_undef;
 unsigned long oldbg = color_undef;
-int perceptive = 0;
+int perceptive = 0, cowheader;
 double chroma_weight = 1.0;
 
 #ifndef NO_CURSES
@@ -201,7 +203,7 @@ void bifurcate(FILE* file, unsigned long color1, unsigned long color2, char* bst
 {
 	unsigned long fg = oldfg;
 	unsigned long bg = oldbg;
-	char* str = "\xe2\x96\x84";
+	char* str = cowheader ? "\\N{U+2584}" : "\xe2\x96\x84";
 	
 	if (color1 == color2)
 	{
@@ -217,7 +219,7 @@ void bifurcate(FILE* file, unsigned long color1, unsigned long color2, char* bst
 	else
 		if (color2 == color_transparent)
 		{
-			str = "\xe2\x96\x80";
+			str = cowheader ? "\\N{U+2580}" : "\xe2\x96\x80";
 			bg = color2;
 			fg = color1;
 		}
@@ -249,9 +251,9 @@ void bifurcate(FILE* file, unsigned long color1, unsigned long color2, char* bst
 	if (bg != oldbg)
 	{
 		if (bg == color_transparent)
-			fputs("\e[49", file);
+			fputs(cowheader ? "\\e[49" : "\e[49", file);
 		else
-			fprintf(file, "\e[48;5;%lu", bg);
+			fprintf(file, cowheader ? "\\e[48;5;%lu" : "\e[48;5;%lu", bg);
 		
 		if (fg != oldfg)
 			if (fg == color_undef)
@@ -264,9 +266,9 @@ void bifurcate(FILE* file, unsigned long color1, unsigned long color2, char* bst
 	else if (fg != oldfg)
 	{
 		if (fg == color_undef)
-			fputs("\e[39m", file);
+			fputs(cowheader ? "\\e[39m" : "\e[39m", file);
 		else
-			fprintf(file, "\e[38;5;%lum", fg);
+			fprintf(file, cowheader ? "\\e[38;5;%lum" : "\e[38;5;%lum", fg);
 	}
 	
 	oldbg = bg;
@@ -400,12 +402,14 @@ int main(int argc, char** argv)
 	size_t width1, width2;
 	unsigned long i, j, * row1, * row2, color1, color2, lastpx1, lastpx2, margin = 0;
 	
-	int cowheader = !memcmp(basename2(binname), "img2cow", 7), background = 0;
+	int background = 0;
 	unsigned long stemlen = 4, stemmargin = 11;
 	
 	MagickWand* science;
 	PixelIterator* iterator;
 	PixelWand** pixels;
+	
+	cowheader = !memcmp(basename2(binname), "img2cow", 7);
 	
 	while (*++argv)
 		if (**argv == '-')
@@ -576,7 +580,7 @@ int main(int argc, char** argv)
 	}
 	if (cowheader)
 	{
-		fputs("$the_cow =<<EOC;\n", outfile);
+		fputs("binmode STDOUT, \":utf8\";\n$the_cow =<<EOC;\n", outfile);
 		for (i = 0; i < stemlen; stemmargin ++, i ++)
 		{
 			for (j = 0; j < stemmargin; j ++)
@@ -648,7 +652,7 @@ int main(int argc, char** argv)
 #endif
 			if (oldbg != color_transparent)
 			{
-				fputs("\e[49m\n", outfile);
+				fputs(cowheader ? "\\e[49m\n" : "\e[49m\n", outfile);
 				oldbg = color_transparent;
 			}
 			else
@@ -658,9 +662,9 @@ int main(int argc, char** argv)
 			fprintf(outfile, "%s\n", ti_op);
 #endif
 		else if (oldbg == color_transparent)
-			fputs("\e[39m\n", outfile);
+			fputs(cowheader ? "\\e[39m\n" : "\e[39m\n", outfile);
 		else
-			fputs("\e[39;49m\n", outfile);
+			fputs(cowheader ? "\\e[39;49m\n" : "\e[39;49m\n", outfile);
 		
 		stemmargin ++;
 	}
