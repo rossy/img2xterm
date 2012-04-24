@@ -31,8 +31,8 @@ Before compilation, make sure you have development versions of [ImageMagick]
 Getting img2xterm
 -----------------
 
-  The GNU Autotools are not required. To compile and build from source, simply
-  run:
+  The GNU Autotools are not required. To compile and install from source,
+  simply run:
 
     $ make
     # make install
