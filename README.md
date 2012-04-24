@@ -37,10 +37,6 @@ Getting img2xterm
     $ make
     # make install
 
-  To compile without Ncurses and terminfo support, run:
-
-    $ make 'LIBS=-lm' 'DEFS=-DNO_CURSES'
-
   A [GIMP] [6] palette containing the upper 240 colours used in xterm is also
   available. It can be used for dithering images before conversion. To install,
   run:
