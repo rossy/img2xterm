@@ -9,7 +9,7 @@ PREFIX = /usr/local
 all: img2xterm man6/img2xterm.6.gz
 
 img2xterm: img2xterm.c
-	$(CC) $(CFLAGS) $(WANDCFLAGS) -o $@ $< $(WANDLDFLAGS) $(LDFLAGS) $(LIBS)
+	$(CC) $(CFLAGS) $(WANDCFLAGS) $(DEFS) -o $@ $< $(WANDLDFLAGS) $(LDFLAGS) $(LIBS)
 
 man6:
 	mkdir man6
