@@ -104,7 +104,7 @@ void srgb2yiq(unsigned char red, unsigned char green, unsigned char blue, double
 
 double cie94(double l1, double a1, double b1, double l2, double a2, double b2)
 {
-	const double kl = 1;
+	const double kl = 1.0;
 	const double k1 = 0.045;
 	const double k2 = 0.015;
 	
@@ -116,11 +116,62 @@ double cie94(double l1, double a1, double b1, double l2, double a2, double b2)
 	double db = b1 - b2;
 	double dh = sqrt(da * da + db * db - dc * dc);
 	
-	double t1 = dl / kl;
-	double t2 = dc / (1 + k1 * c1);
-	double t3 = dh / (1 + k2 * c1);
-	
-	return sqrt(t1 * t1 + t2 * t2 + t3 * t3);
+	dl /= kl;
+	dc /= kl + c1 * k1;
+	dh /= kl + c1 * k2;
+
+	return sqrt(dl * dl + dc * dc + dh * dh);
+}
+
+double cie2000(double l1, double a1, double b1, double l2, double a2, double b2)
+{
+	double c1 = sqrt(a1 * a1 + b1 * b1);
+	double c2 = sqrt(a2 * a2 + b2 * b2);
+
+	double h1 = atan2(b1, a1);
+	double h2 = atan2(b2, a2);
+
+	double al = (l1 + l2) * 0.5;
+	double dl = l2 - l1;
+
+	double ac = (c1 + c2) * 0.5;
+	double dc = c1 - c2;
+
+	double ah = (h1 + h2) * 0.5;
+
+	if (abs(h1 - h2) > M_PI)
+		ah += M_PI;
+
+	double dh = h2 - h1;
+
+	if (abs(dh) > M_PI)
+	{
+		if (h2 <= h1)
+			dh += M_PI * 2.0;
+		else
+			dh -= M_PI * 2.0;
+	}
+
+	dh = sqrt(c1 * c2) * sin(dh) * 2.0;
+
+	double t = 1.0 - 0.17 * cos(ah - M_PI / 6.0) + 0.24 * cos(ah * 2.0) + 0.32 * cos(ah * 3.0 + (M_PI / 30)) - 0.20 * cos(ah * 4.0 - (7.0 / 20.0 * M_PI));
+	double als = (al - 50.0) * (al - 50.0);
+	double sl = 1.0 + 0.015 * als / sqrt(20.0 + als);
+
+	double sc = 1.0 + 0.045 * ac;
+	double sh = 1.0 + 0.015 * ac * t;
+
+	double dt = ah / 25.0 - (11.0 / 180.0 * M_PI);
+	dt = M_PI / 6.0 * exp(dt * -dt);
+
+	double rt = pow(ac, 7);
+	rt = sqrt(rt / (rt + 6103515625)) * sin(dt) * -2;
+
+	dl /= sl;
+	dc /= sc;
+	dh /= sh;
+
+	return sqrt(dl * dl + dc * dc + dh * dh + rt * dc * dh);
 }
 
 void xterm2rgb(unsigned char color, unsigned char* rgb)
@@ -147,6 +198,27 @@ unsigned long rgb2xterm_cie94(unsigned char r, unsigned char g, unsigned char b)
 	for (; i < 256; i++)
 	{
 		d = cie94(l, aa, bb, labtable[i * 3], labtable[i * 3 + 1], labtable[i * 3 + 2]);
+		if (d < smallest_distance)
+		{
+			smallest_distance = d;
+			ret = i;
+		}
+	}
+	
+	return ret;
+}
+
+unsigned long rgb2xterm_cie2000(unsigned char r, unsigned char g, unsigned char b)
+{
+	unsigned long i = 16, ret = 0;
+	double d, smallest_distance = INFINITY;
+	double l, aa, bb;
+	
+	srgb2lab(r, g, b, &l, &aa, &bb);
+	
+	for (; i < 256; i++)
+	{
+		d = cie2000(l, aa, bb, labtable[i * 3], labtable[i * 3 + 1], labtable[i * 3 + 2]);
 		if (d < smallest_distance)
 		{
 			smallest_distance = d;
@@ -305,7 +377,7 @@ unsigned long fillrow(PixelWand** pixels, unsigned long* row, unsigned long widt
 					row[i] = color_transparent;
 				else
 				{
-					row[i] = rgb2xterm_cie94(
+					row[i] = rgb2xterm_cie2000(
 						(unsigned long)(PixelGetRed(pixels[i]) * 255.0),
 						(unsigned long)(PixelGetGreen(pixels[i]) * 255.0),
 						(unsigned long)(PixelGetBlue(pixels[i]) * 255.0));
@@ -353,8 +425,9 @@ Options:\n\
   -l, --stem-length [length]  length of the speech bubble stem when generating\n\
                               cowfiles (default: 4)\n\
   -m, --margin [width]        add a margin to the left of the image\n\
-  -p, --perceptive            use the CIE94 color difference formula for color\n\
-                              conversion instead of simple RGB linear distance\n\
+  -p, --perceptive            use the CIE2000 color difference formula for\n\
+                              color conversion instead of simple RGB linear\n\
+                              distance\n\
   -s, --stem-margin [width]   margin for the speech bubble stem when generating\n\
                               cowfiles (default: 11)\n\
   -t, --stem-continue         continue drawing the speech bubble stem into the\n\
