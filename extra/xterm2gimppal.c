@@ -17,7 +17,7 @@ void xterm2rgb(unsigned char color, unsigned char* rgb)
 
 int main()
 {
-	unsigned long i = 16;
+	int i = 16;
 	unsigned char c[3];
 	
 	puts("GIMP Palette");

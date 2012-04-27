@@ -1,6 +1,16 @@
 INSTALL = install
 COWDIR = /usr/share/cows
 
+ifeq ($(shell which gcc>/dev/null && echo y),y)
+	CC = gcc
+	CFLAGS = -Wall
+endif
+
+ifeq ($(shell uname), Darwin)
+	CC = clang
+	CFLAGS = -Wall
+endif
+
 all: xterm-256color.gpl cows
 
 .PHONY: all cows install-cows clean
