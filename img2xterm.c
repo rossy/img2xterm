@@ -45,12 +45,30 @@ enum {
 	color_transparent,
 };
 
-unsigned char* colortable;
-double* labtable;
+typedef struct _color_lab {
+	double l;
+	double a;
+	double b;
+} color_lab;
+
+typedef struct _color_yiq {
+	double y;
+	double i;
+	double q;
+} color_yiq;
+
+typedef struct _color_rgb8 {
+	unsigned char r;
+	unsigned char g;
+	unsigned char b;
+} color_rgb8;
+
+color_rgb8* rgbtable;
+color_lab* labtable;
+color_yiq* yiqtable;
 
 const unsigned char valuerange[] = { 0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff };
-unsigned long oldfg = color_undef;
-unsigned long oldbg = color_undef;
+unsigned long oldfg = color_undef, oldbg = color_undef;
 int perceptive = 0, cowheader;
 double chroma_weight = 1.0;
 
@@ -61,11 +79,11 @@ char* ti_setf;
 char* ti_op;
 #endif
 
-void srgb2lab(unsigned char red, unsigned char green, unsigned char blue, double* lightness, double* aa, double* bb)
+color_lab srgb2lab(color_rgb8 rgb)
 {
-	double r = (double)red / 255.0;
-	double g = (double)green / 255.0;
-	double b = (double)blue / 255.0;
+	double r = (double)rgb.r / 255.0;
+	double g = (double)rgb.g / 255.0;
+	double b = (double)rgb.b / 255.0;
 	
 	double rl = r <= 0.4045 ? r / 12.92 : pow((r + 0.055) / 1.055, 2.4);
 	double gl = g <= 0.4045 ? g / 12.92 : pow((g + 0.055) / 1.055, 2.4);
@@ -75,9 +93,9 @@ void srgb2lab(unsigned char red, unsigned char green, unsigned char blue, double
 	double y = ( 871024.0/4096299.0 ) * rl + (8788810.0/12288897.0) * gl + (  887015.0/12288897.0) * bl;
 	double z = (  79184.0/4096299.0 ) * rl + (4394405.0/36866691.0) * gl + (70074185.0/73733382.0) * bl;
 	
-	double xn = x / 0.95047;
+	double xn = x / (31271.0/32902.0);
 	double yn = y;
-	double zn = z / 1.08883;
+	double zn = z / (35827.0/32902.0);
 	
 	double fxn = xn > (216.0 / 24389.0) ? pow(xn, 1.0 / 3.0)
 	//	: (841.0 / 108.0) * xn + (4.0 / 29.0);
@@ -89,53 +107,40 @@ void srgb2lab(unsigned char red, unsigned char green, unsigned char blue, double
 	//	: (841.0 / 108.0) * zn + (4.0 / 29.0);
 		: ((24389.0 / 27.0) * zn + 16.0) / 116.0;
 	
-	*lightness = 116.0 * fyn - 16.0;
-	*aa = (500.0 * (fxn - fyn)) * chroma_weight;
-	*bb = (200.0 * (fyn - fzn)) * chroma_weight;
+	color_lab lab;
+	
+	lab.l = 116.0 * fyn - 16.0;
+	lab.a = (500.0 * (fxn - fyn)) * chroma_weight;
+	lab.b = (200.0 * (fyn - fzn)) * chroma_weight;
+	
+	return lab;
 }
 
-void srgb2yiq(unsigned char red, unsigned char green, unsigned char blue, double* y, double* i, double* q)
+color_yiq srgb2yiq(color_rgb8 rgb)
 {
-	double r = (double)red / 255.0;
-	double g = (double)green / 255.0;
-	double b = (double)blue / 255.0;
+	double r = (double)rgb.r / 255.0;
+	double g = (double)rgb.g / 255.0;
+	double b = (double)rgb.b / 255.0;
 	
-	*y =   0.299    * r +  0.587    * g +  0.144    * b;
-	*i =  (0.595716 * r + -0.274453 * g + -0.321263 * b) * chroma_weight;
-	*q =  (0.211456 * r + -0.522591 * g +  0.311135 * b) * chroma_weight;
+	color_yiq yiq;
+	
+	yiq.y =   0.299    * r +  0.587    * g +  0.144    * b;
+	yiq.i =  (0.595716 * r + -0.274453 * g + -0.321263 * b) * chroma_weight;
+	yiq.q =  (0.211456 * r + -0.522591 * g +  0.311135 * b) * chroma_weight;
+	
+	return yiq;
 }
 
-double cie94(double l1, double a1, double b1, double l2, double a2, double b2)
+double cie2000(color_lab lab1, color_lab lab2)
 {
-	const double kl = 1.0;
-	const double k1 = 0.045;
-	const double k2 = 0.015;
-	
-	double c1 = sqrt(a1 * a1 + b1 * b1);
-	double c2 = sqrt(a2 * a2 + b2 * b2);
-	double dl = l1 - l2;
-	double dc = c1 - c2;
-	double da = a1 - a2;
-	double db = b1 - b2;
-	double dh = sqrt(da * da + db * db - dc * dc);
-	
-	dl /= kl;
-	dc /= kl + c1 * k1;
-	dh /= kl + c1 * k2;
+	double c1 = sqrt(lab1.a * lab1.a + lab1.b * lab1.b);
+	double c2 = sqrt(lab2.a * lab2.a + lab2.b * lab2.b);
 
-	return sqrt(dl * dl + dc * dc + dh * dh);
-}
+	double h1 = atan2(lab1.b, lab1.a);
+	double h2 = atan2(lab2.b, lab2.a);
 
-double cie2000(double l1, double a1, double b1, double l2, double a2, double b2)
-{
-	double c1 = sqrt(a1 * a1 + b1 * b1);
-	double c2 = sqrt(a2 * a2 + b2 * b2);
-
-	double h1 = atan2(b1, a1);
-	double h2 = atan2(b2, a2);
-
-	double al = (l1 + l2) * 0.5;
-	double dl = l2 - l1;
+	double al = (lab1.l + lab2.l) * 0.5;
+	double dl = lab2.l - lab1.l;
 
 	double ac = (c1 + c2) * 0.5;
 	double dc = c1 - c2;
@@ -177,30 +182,33 @@ double cie2000(double l1, double a1, double b1, double l2, double a2, double b2)
 	return sqrt(dl * dl + dc * dc + dh * dh + rt * dc * dh);
 }
 
-void xterm2rgb(unsigned char color, unsigned char* rgb)
+color_rgb8 xterm2rgb(unsigned char color)
 {
+	color_rgb8 rgb;
+	
 	if (color < 232)
 	{
 		color -= 16;
-		rgb[0] = valuerange[(color / 36) % 6];
-		rgb[1] = valuerange[(color / 6) % 6];
-		rgb[2] = valuerange[color % 6];
+		rgb.r = valuerange[(color / 36) % 6];
+		rgb.g = valuerange[(color / 6) % 6];
+		rgb.b = valuerange[color % 6];
 	}
 	else
-		rgb[0] = rgb[1] = rgb[2] = 8 + (color - 232) * 10;
+		rgb.r = rgb.g = rgb.b = 8 + (color - 232) * 10;
+	
+	return rgb;
 }
 
-unsigned long rgb2xterm_cie94(unsigned char r, unsigned char g, unsigned char b)
+unsigned char rgb2xterm_cie2000(color_rgb8 rgb)
 {
-	unsigned long i = 16, ret = 0;
+	unsigned long i = 16;
+	unsigned char ret = 0;
 	double d, smallest_distance = INFINITY;
-	double l, aa, bb;
-	
-	srgb2lab(r, g, b, &l, &aa, &bb);
+	color_lab lab = srgb2lab(rgb);
 	
 	for (; i < 256; i++)
 	{
-		d = cie94(l, aa, bb, labtable[i * 3], labtable[i * 3 + 1], labtable[i * 3 + 2]);
+		d = cie2000(lab, labtable[i]);
 		if (d < smallest_distance)
 		{
 			smallest_distance = d;
@@ -211,17 +219,18 @@ unsigned long rgb2xterm_cie94(unsigned char r, unsigned char g, unsigned char b)
 	return ret;
 }
 
-unsigned long rgb2xterm_cie2000(unsigned char r, unsigned char g, unsigned char b)
+unsigned char rgb2xterm_yiq(color_rgb8 rgb)
 {
-	unsigned long i = 16, ret = 0;
+	unsigned long i = 16;
+	unsigned char ret = 0;
 	double d, smallest_distance = INFINITY;
-	double l, aa, bb;
-	
-	srgb2lab(r, g, b, &l, &aa, &bb);
+	color_yiq yiq = srgb2yiq(rgb);
 	
 	for (; i < 256; i++)
 	{
-		d = cie2000(l, aa, bb, labtable[i * 3], labtable[i * 3 + 1], labtable[i * 3 + 2]);
+		d = (yiq.y - yiqtable[i].y) * (yiq.y - yiqtable[i].y) + 
+			(yiq.i - yiqtable[i].i) * (yiq.i - yiqtable[i].i) + 
+			(yiq.q - yiqtable[i].q) * (yiq.q - yiqtable[i].q);
 		if (d < smallest_distance)
 		{
 			smallest_distance = d;
@@ -232,38 +241,16 @@ unsigned long rgb2xterm_cie2000(unsigned char r, unsigned char g, unsigned char 
 	return ret;
 }
 
-unsigned long rgb2xterm_yiq(unsigned char r, unsigned char g, unsigned char b)
+unsigned char rgb2xterm(color_rgb8 rgb)
 {
-	unsigned long i = 16, ret = 0;
-	double d, smallest_distance = INFINITY;
-	double y, ii, q;
-	
-	srgb2yiq(r, g, b, &y, &ii, &q);
+	unsigned long i = 16, d, smallest_distance = UINT_MAX;
+	unsigned char ret = 0;
 	
 	for (; i < 256; i++)
 	{
-		d = (y - labtable[i * 3]) * (y - labtable[i * 3]) + 
-			(ii - labtable[i * 3 + 1]) * (ii - labtable[i * 3 + 1]) + 
-			(q - labtable[i * 3 + 2]) * (q - labtable[i * 3 + 2]);
-		if (d < smallest_distance)
-		{
-			smallest_distance = d;
-			ret = i;
-		}
-	}
-	
-	return ret;
-}
-
-unsigned long rgb2xterm(unsigned char r, unsigned char g, unsigned char b)
-{
-	unsigned long i = 16, d, ret = 0, smallest_distance = UINT_MAX;
-	
-	for (; i < 256; i++)
-	{
-		d = (colortable[i * 3] - r) * (colortable[i * 3] - r) +
-			(colortable[i * 3 + 1] - g) * (colortable[i * 3 + 1] - g) +
-			(colortable[i * 3 + 2] - b) * (colortable[i * 3 + 2] - b);
+		d = (rgbtable[i].r - rgb.r) * (rgbtable[i].r - rgb.r) +
+			(rgbtable[i].g - rgb.g) * (rgbtable[i].g - rgb.g) +
+			(rgbtable[i].b - rgb.b) * (rgbtable[i].b - rgb.b);
 		if (d < smallest_distance)
 		{
 			smallest_distance = d;
@@ -365,10 +352,13 @@ unsigned long fillrow(PixelWand** pixels, unsigned long* row, unsigned long widt
 					row[i] = color_transparent;
 				else
 				{
-					row[i] = rgb2xterm(
-						(unsigned long)(PixelGetRed(pixels[i]) * 255.0),
-						(unsigned long)(PixelGetGreen(pixels[i]) * 255.0),
-						(unsigned long)(PixelGetBlue(pixels[i]) * 255.0));
+					color_rgb8 rgb;
+					
+					rgb.r = (unsigned long)(PixelGetRed(pixels[i]) * 255.0);
+					rgb.g = (unsigned long)(PixelGetGreen(pixels[i]) * 255.0);
+					rgb.b = (unsigned long)(PixelGetBlue(pixels[i]) * 255.0);
+					
+					row[i] = rgb2xterm(rgb);
 					lastpx = i;
 				}
 			}
@@ -380,10 +370,13 @@ unsigned long fillrow(PixelWand** pixels, unsigned long* row, unsigned long widt
 					row[i] = color_transparent;
 				else
 				{
-					row[i] = rgb2xterm_cie2000(
-						(unsigned long)(PixelGetRed(pixels[i]) * 255.0),
-						(unsigned long)(PixelGetGreen(pixels[i]) * 255.0),
-						(unsigned long)(PixelGetBlue(pixels[i]) * 255.0));
+					color_rgb8 rgb;
+					
+					rgb.r = (unsigned long)(PixelGetRed(pixels[i]) * 255.0);
+					rgb.g = (unsigned long)(PixelGetGreen(pixels[i]) * 255.0);
+					rgb.b = (unsigned long)(PixelGetBlue(pixels[i]) * 255.0);
+					
+					row[i] = rgb2xterm_cie2000(rgb);
 					lastpx = i;
 				}
 			}
@@ -395,10 +388,13 @@ unsigned long fillrow(PixelWand** pixels, unsigned long* row, unsigned long widt
 					row[i] = color_transparent;
 				else
 				{
-					row[i] = rgb2xterm_yiq(
-						(unsigned long)(PixelGetRed(pixels[i]) * 255.0),
-						(unsigned long)(PixelGetGreen(pixels[i]) * 255.0),
-						(unsigned long)(PixelGetBlue(pixels[i]) * 255.0));
+					color_rgb8 rgb;
+					
+					rgb.r = (unsigned long)(PixelGetRed(pixels[i]) * 255.0);
+					rgb.g = (unsigned long)(PixelGetGreen(pixels[i]) * 255.0);
+					rgb.b = (unsigned long)(PixelGetBlue(pixels[i]) * 255.0);
+					
+					row[i] = rgb2xterm_yiq(rgb);
 					lastpx = i;
 				}
 			}
@@ -630,30 +626,25 @@ int main(int argc, char** argv)
 		return 2;
 	}
 	
-	if (perceptive)
+	switch (perceptive)
 	{
-		unsigned char rgb[3];
-		double l, a, b;
-		
-		labtable = malloc(256 * 3 * sizeof(double));
-		for (i = 16; i < 256; i ++)
-		{
-			xterm2rgb(i, rgb);
-			if (perceptive == 1)
-				srgb2lab(rgb[0], rgb[1], rgb[2], &l, &a, &b);
-			else
-				srgb2yiq(rgb[0], rgb[1], rgb[2], &l, &a, &b);
-			labtable[i * 3] = l;
-			labtable[i * 3 + 1] = a;
-			labtable[i * 3 + 2] = b;
-		}
+		case 0:
+			rgbtable = malloc(256 * sizeof(color_rgb8));
+			for (i = 16; i < 256; i ++)
+				rgbtable[i] = xterm2rgb(i);
+			break;
+		case 1:
+			labtable = malloc(256 * sizeof(color_lab));
+			for (i = 16; i < 256; i ++)
+				labtable[i] = srgb2lab(xterm2rgb(i));
+			break;
+		case 2:
+			yiqtable = malloc(256 * sizeof(color_yiq));
+			for (i = 16; i < 256; i ++)
+				yiqtable[i] = srgb2yiq(xterm2rgb(i));
+			break;
 	}
-	else
-	{
-		colortable = malloc(256 * 3 * sizeof(unsigned char));
-		for (i = 16; i < 256; i ++)
-			xterm2rgb(i, colortable + i * 3);
-	}
+	
 	if (cowheader)
 	{
 		fputs("binmode STDOUT, \":utf8\";\n$the_cow =<<EOC;\n", outfile);
@@ -750,7 +741,20 @@ int main(int argc, char** argv)
 	
 	DestroyPixelIterator(iterator);
 	DestroyMagickWand(science);
-	free(colortable);
+	
+	switch (perceptive)
+	{
+		case 0:
+			free(rgbtable);
+			break;
+		case 1:
+			free(labtable);
+			break;
+		case 2:
+			free(yiqtable);
+			break;
+	}
+	
 	if (outfile != stdout)
 		fclose(outfile);
 	
