@@ -71,20 +71,23 @@ void srgb2lab(unsigned char red, unsigned char green, unsigned char blue, double
 	double gl = g <= 0.4045 ? g / 12.92 : pow((g + 0.055) / 1.055, 2.4);
 	double bl = b <= 0.4045 ? b / 12.92 : pow((b + 0.055) / 1.055, 2.4);
 	
-	double x = 0.4124564 * rl + 0.3575761 * gl + 0.1804375 * bl;
-	double y = 0.2126729 * rl + 0.7151522 * gl + 0.0721750 * bl;
-	double z = 0.0193339 * rl + 0.1191920 * gl + 0.9503041 * bl;
+	double x = (5067776.0/12288897.0) * rl + (4394405.0/12288897.0) * gl + ( 4435075.0/24577794.0) * bl;
+	double y = ( 871024.0/4096299.0 ) * rl + (8788810.0/12288897.0) * gl + (  887015.0/12288897.0) * bl;
+	double z = (  79184.0/4096299.0 ) * rl + (4394405.0/36866691.0) * gl + (70074185.0/73733382.0) * bl;
 	
 	double xn = x / 0.95047;
 	double yn = y;
 	double zn = z / 1.08883;
 	
 	double fxn = xn > (216.0 / 24389.0) ? pow(xn, 1.0 / 3.0)
-		: (841.0 / 108.0) * xn + (4.0 / 29.0);
+	//	: (841.0 / 108.0) * xn + (4.0 / 29.0);
+		: ((24389.0 / 27.0) * xn + 16.0) / 116.0;
 	double fyn = yn > (216.0 / 24389.0) ? pow(yn, 1.0 / 3.0)
-		: (841.0 / 108.0) * yn + (4.0 / 29.0);
+	//	: (841.0 / 108.0) * yn + (4.0 / 29.0);
+		: ((24389.0 / 27.0) * yn + 16.0) / 116.0;
 	double fzn = zn > (216.0 / 24389.0) ? pow(zn, 1.0 / 3.0)
-		: (841.0 / 108.0) * zn + (4.0 / 29.0);
+	//	: (841.0 / 108.0) * zn + (4.0 / 29.0);
+		: ((24389.0 / 27.0) * zn + 16.0) / 116.0;
 	
 	*lightness = 116.0 * fyn - 16.0;
 	*aa = (500.0 * (fxn - fyn)) * chroma_weight;
@@ -139,12 +142,12 @@ double cie2000(double l1, double a1, double b1, double l2, double a2, double b2)
 
 	double ah = (h1 + h2) * 0.5;
 
-	if (abs(h1 - h2) > M_PI)
+	if (fabs(h1 - h2) > M_PI)
 		ah += M_PI;
 
 	double dh = h2 - h1;
 
-	if (abs(dh) > M_PI)
+	if (fabs(dh) > M_PI)
 	{
 		if (h2 <= h1)
 			dh += M_PI * 2.0;
