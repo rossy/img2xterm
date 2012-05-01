@@ -45,6 +45,8 @@ enum {
 	color_transparent,
 };
 
+const unsigned char valuerange[] = { 0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff };
+
 typedef struct _color_lab {
 	double l;
 	double a;
@@ -67,10 +69,19 @@ color_rgb8* rgbtable;
 color_lab* labtable;
 color_yiq* yiqtable;
 
-const unsigned char valuerange[] = { 0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff };
-unsigned long oldfg = color_undef, oldbg = color_undef;
-int perceptive = 0, cowheader;
+char* binname;
+
+unsigned perceptive = 0,
+	cowheader = 0,
+	background = 0,
+	margin = 0,
+	stemlen = 4,
+	stemmargin = 11;
+	
 double chroma_weight = 1.0;
+
+unsigned char oldfg = color_undef,
+	oldbg = color_undef;
 
 #ifndef NO_CURSES
 int use_terminfo = 0;
@@ -98,13 +109,10 @@ color_lab srgb2lab(color_rgb8 rgb)
 	double zn = z / (35827.0/32902.0);
 	
 	double fxn = xn > (216.0 / 24389.0) ? pow(xn, 1.0 / 3.0)
-	//	: (841.0 / 108.0) * xn + (4.0 / 29.0);
 		: ((24389.0 / 27.0) * xn + 16.0) / 116.0;
 	double fyn = yn > (216.0 / 24389.0) ? pow(yn, 1.0 / 3.0)
-	//	: (841.0 / 108.0) * yn + (4.0 / 29.0);
 		: ((24389.0 / 27.0) * yn + 16.0) / 116.0;
 	double fzn = zn > (216.0 / 24389.0) ? pow(zn, 1.0 / 3.0)
-	//	: (841.0 / 108.0) * zn + (4.0 / 29.0);
 		: ((24389.0 / 27.0) * zn + 16.0) / 116.0;
 	
 	color_lab lab;
@@ -261,10 +269,9 @@ unsigned char rgb2xterm(color_rgb8 rgb)
 	return ret;
 }
 
-void bifurcate(FILE* file, unsigned long color1, unsigned long color2, char* bstr)
+void bifurcate(FILE* file, unsigned char color1, unsigned char color2, char* bstr)
 {
-	unsigned long fg = oldfg;
-	unsigned long bg = oldbg;
+	unsigned char fg = oldfg, bg = oldbg;
 	char* str = cowheader ? "\\N{U+2584}" : "\xe2\x96\x84";
 	
 	if (color1 == color2)
@@ -315,13 +322,13 @@ void bifurcate(FILE* file, unsigned long color1, unsigned long color2, char* bst
 		if (bg == color_transparent)
 			fputs(cowheader ? "\\e[49" : "\e[49", file);
 		else
-			fprintf(file, cowheader ? "\\e[48;5;%lu" : "\e[48;5;%lu", bg);
+			fprintf(file, cowheader ? "\\e[48;5;%u" : "\e[48;5;%u", bg);
 		
 		if (fg != oldfg)
 			if (fg == color_undef)
 				fputs(";39m", file);
 			else
-				fprintf(file, ";38;5;%lum", fg);
+				fprintf(file, ";38;5;%um", fg);
 		else
 			fputc('m', file);
 	}
@@ -330,7 +337,7 @@ void bifurcate(FILE* file, unsigned long color1, unsigned long color2, char* bst
 		if (fg == color_undef)
 			fputs(cowheader ? "\\e[39m" : "\e[39m", file);
 		else
-			fprintf(file, cowheader ? "\\e[38;5;%lum" : "\e[38;5;%lum", fg);
+			fprintf(file, cowheader ? "\\e[38;5;%um" : "\e[38;5;%um", fg);
 	}
 	
 	oldbg = bg;
@@ -339,9 +346,9 @@ void bifurcate(FILE* file, unsigned long color1, unsigned long color2, char* bst
 	fputs(str, file);
 }
 
-unsigned long fillrow(PixelWand** pixels, unsigned long* row, unsigned long width)
+unsigned fillrow(PixelWand** pixels, unsigned char* row, unsigned width)
 {
-	unsigned long i = 0, lastpx = 0;
+	unsigned i = 0, length = 0;
 	
 	switch (perceptive)
 	{
@@ -359,7 +366,7 @@ unsigned long fillrow(PixelWand** pixels, unsigned long* row, unsigned long widt
 					rgb.b = (unsigned long)(PixelGetBlue(pixels[i]) * 255.0);
 					
 					row[i] = rgb2xterm(rgb);
-					lastpx = i;
+					length = i + 1;
 				}
 			}
 			break;
@@ -377,7 +384,7 @@ unsigned long fillrow(PixelWand** pixels, unsigned long* row, unsigned long widt
 					rgb.b = (unsigned long)(PixelGetBlue(pixels[i]) * 255.0);
 					
 					row[i] = rgb2xterm_cie2000(rgb);
-					lastpx = i;
+					length = i + 1;
 				}
 			}
 			break;
@@ -395,13 +402,13 @@ unsigned long fillrow(PixelWand** pixels, unsigned long* row, unsigned long widt
 					rgb.b = (unsigned long)(PixelGetBlue(pixels[i]) * 255.0);
 					
 					row[i] = rgb2xterm_yiq(rgb);
-					lastpx = i;
+					length = i + 1;
 				}
 			}
 			break;
 	}
 	
-	return lastpx + 1;
+	return length;
 }
 
 void usage(int ret, const char* binname)
@@ -453,6 +460,24 @@ Examples:\n\
 	exit(ret);
 }
 
+#ifndef NO_CURSES
+int init_tinfo()
+{
+	if (setupterm(NULL, fileno(stdout), NULL))
+		return 0;
+	
+	if (((ti_op = tigetstr("op")) == (void*)-1 &&
+		(ti_op = tigetstr("sgr0")) == (void*)-1) ||
+		(ti_setb = tigetstr("setb")) == (void*)-1 ||
+		(ti_setf = tigetstr("setf")) == (void*)-1 ||
+		!tparm(ti_setb, 255) ||
+		!tparm(ti_setf, 255))
+		return 0;
+	
+	return 1;
+}
+#endif
+
 const char* basename2(const char* string)
 {
 	const char* ret = string;
@@ -467,20 +492,19 @@ const char* basename2(const char* string)
 
 int main(int argc, char** argv)
 {
-	const char stdin_str[] = "-", * infile = stdin_str, * outfile_str = NULL, * binname = *argv;
+	const char stdin_str[] = "-", * infile = stdin_str, * outfile_str = NULL;
 	char c;
 	FILE* outfile = stdout;
 	
 	size_t width1, width2;
-	unsigned long i, j, * row1, * row2, color1, color2, lastpx1, lastpx2, margin = 0;
-	
-	int background = 0;
-	unsigned long stemlen = 4, stemmargin = 11;
+	unsigned long i, j, color1, color2, lastpx1, lastpx2;
+	unsigned char* row1, * row2;
 	
 	MagickWand* science;
 	PixelIterator* iterator;
 	PixelWand** pixels;
 	
+	binname = *argv;
 	cowheader = !memcmp(basename2(binname), "img2cow", 7);
 	
 	while (*++argv)
@@ -496,19 +520,19 @@ int main(int argc, char** argv)
 							cowheader = 1;
 						else if (!strcmp("stem-length", *argv))
 						{
-							if (!*++argv || !sscanf(*argv, "%lu", &stemlen))
+							if (!*++argv || !sscanf(*argv, "%d", &stemlen))
 								usage(1, binname);
 						}
 						else if (!strcmp("perceptive", *argv))
 							perceptive = 1;
 						else if (!strcmp("margin", *argv))
 						{
-							if (!*++argv || !sscanf(*argv, "%lu", &margin))
+							if (!*++argv || !sscanf(*argv, "%d", &margin))
 								usage(1, binname);
 						}
 						else if (!strcmp("stem-margin", *argv))
 						{
-							if (!*++argv || !sscanf(*argv, "%lu", &stemmargin))
+							if (!*++argv || !sscanf(*argv, "%d", &stemmargin))
 								usage(1, binname);
 						}
 						else if (!strcmp("stem-continue", *argv))
@@ -542,18 +566,18 @@ int main(int argc, char** argv)
 						break;
 #endif
 					case 'l':
-						if (*++*argv || !*++argv || !sscanf(*argv, "%lu", &stemlen))
+						if (*++*argv || !*++argv || !sscanf(*argv, "%d", &stemlen))
 							usage(1, binname);
 						goto nextarg;
 					case 'm':
-						if (*++*argv || !*++argv || !sscanf(*argv, "%lu", &margin))
+						if (*++*argv || !*++argv || !sscanf(*argv, "%d", &margin))
 							usage(1, binname);
 						goto nextarg;
 					case 'p':
 						perceptive = 1;
 						break;
 					case 's':
-						if (*++*argv || !*++argv || !sscanf(*argv, "%lu", &stemmargin))
+						if (*++*argv || !*++argv || !sscanf(*argv, "%d", &stemmargin))
 							usage(1, binname);
 						goto nextarg;
 					case 't':
@@ -585,21 +609,11 @@ int main(int argc, char** argv)
 	
 #ifndef NO_CURSES
 	if (use_terminfo)
-	{
-		if (setupterm(NULL, fileno(stdout), NULL))
-			return 5;
-		if (((ti_op = tigetstr("op")) == (void*)-1 &&
-			(ti_op = tigetstr("sgr0")) == (void*)-1) ||
-			(ti_setb = tigetstr("setb")) == (void*)-1 ||
-			(ti_setf = tigetstr("setf")) == (void*)-1 ||
-			!tparm(ti_setb, 255) ||
-			!tparm(ti_setf, 255))
+		if (!init_tinfo())
 		{
-			fprintf(stderr,
-				"%s: terminal doesn't support required features\n", binname);
+			fprintf(stderr, "%s: terminal doesn't support required features\n", binname);
 			return 5;
 		}
-	}
 #endif
 	
 	MagickWandGenesis();
@@ -659,12 +673,12 @@ int main(int argc, char** argv)
 	pixels = PixelGetNextIteratorRow(iterator, &width1);
 	while (pixels)
 	{
-		row1 = malloc(width1 * sizeof(unsigned long));
+		row1 = malloc(width1 * sizeof(unsigned char));
 		lastpx1 = fillrow(pixels, row1, width1);
 		
 		if ((pixels = PixelGetNextIteratorRow(iterator, &width2)))
 		{
-			row2 = malloc(width2 * sizeof(unsigned long));
+			row2 = malloc(width2 * sizeof(unsigned char));
 			lastpx2 = fillrow(pixels, row2, width2);
 			if (lastpx2 > lastpx1)
 				lastpx1 = lastpx2;
