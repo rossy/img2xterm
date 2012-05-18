@@ -59,13 +59,14 @@ typedef struct _color_yiq {
 	double q;
 } color_yiq;
 
-typedef struct _color_rgb8 {
+typedef struct _color_rgba8 {
 	unsigned char r;
 	unsigned char g;
 	unsigned char b;
-} color_rgb8;
+	unsigned char a;
+} color_rgba8;
 
-color_rgb8* rgbtable;
+color_rgba8* rgbtable;
 color_lab* labtable;
 color_yiq* yiqtable;
 
@@ -90,7 +91,7 @@ char* ti_setf;
 char* ti_op;
 #endif
 
-color_lab srgb2lab(color_rgb8 rgb)
+color_lab srgb2lab(color_rgba8 rgb)
 {
 	double r = (double)rgb.r / 255.0;
 	double g = (double)rgb.g / 255.0;
@@ -124,7 +125,7 @@ color_lab srgb2lab(color_rgb8 rgb)
 	return lab;
 }
 
-color_yiq srgb2yiq(color_rgb8 rgb)
+color_yiq srgb2yiq(color_rgba8 rgb)
 {
 	double r = (double)rgb.r / 255.0;
 	double g = (double)rgb.g / 255.0;
@@ -190,9 +191,9 @@ double cie2000(color_lab lab1, color_lab lab2)
 	return sqrt(dl * dl + dc * dc + dh * dh + rt * dc * dh);
 }
 
-color_rgb8 xterm2rgb(unsigned char color)
+color_rgba8 xterm2rgb(unsigned char color)
 {
-	color_rgb8 rgb;
+	color_rgba8 rgb;
 	
 	if (color < 232)
 	{
@@ -207,7 +208,7 @@ color_rgb8 xterm2rgb(unsigned char color)
 	return rgb;
 }
 
-unsigned char rgb2xterm_cie2000(color_rgb8 rgb)
+unsigned char rgb2xterm_cie2000(color_rgba8 rgb)
 {
 	unsigned long i = 16;
 	unsigned char ret = 0;
@@ -227,7 +228,7 @@ unsigned char rgb2xterm_cie2000(color_rgb8 rgb)
 	return ret;
 }
 
-unsigned char rgb2xterm_yiq(color_rgb8 rgb)
+unsigned char rgb2xterm_yiq(color_rgba8 rgb)
 {
 	unsigned long i = 16;
 	unsigned char ret = 0;
@@ -249,7 +250,7 @@ unsigned char rgb2xterm_yiq(color_rgb8 rgb)
 	return ret;
 }
 
-unsigned char rgb2xterm(color_rgb8 rgb)
+unsigned char rgb2xterm(color_rgba8 rgb)
 {
 	unsigned long i = 16, d, smallest_distance = UINT_MAX;
 	unsigned char ret = 0;
@@ -359,7 +360,7 @@ unsigned fillrow(PixelWand** pixels, unsigned char* row, unsigned width)
 					row[i] = color_transparent;
 				else
 				{
-					color_rgb8 rgb;
+					color_rgba8 rgb;
 					
 					rgb.r = (unsigned long)(PixelGetRed(pixels[i]) * 255.0);
 					rgb.g = (unsigned long)(PixelGetGreen(pixels[i]) * 255.0);
@@ -377,7 +378,7 @@ unsigned fillrow(PixelWand** pixels, unsigned char* row, unsigned width)
 					row[i] = color_transparent;
 				else
 				{
-					color_rgb8 rgb;
+					color_rgba8 rgb;
 					
 					rgb.r = (unsigned long)(PixelGetRed(pixels[i]) * 255.0);
 					rgb.g = (unsigned long)(PixelGetGreen(pixels[i]) * 255.0);
@@ -395,7 +396,7 @@ unsigned fillrow(PixelWand** pixels, unsigned char* row, unsigned width)
 					row[i] = color_transparent;
 				else
 				{
-					color_rgb8 rgb;
+					color_rgba8 rgb;
 					
 					rgb.r = (unsigned long)(PixelGetRed(pixels[i]) * 255.0);
 					rgb.g = (unsigned long)(PixelGetGreen(pixels[i]) * 255.0);
@@ -643,7 +644,7 @@ int main(int argc, char** argv)
 	switch (perceptive)
 	{
 		case 0:
-			rgbtable = malloc(256 * sizeof(color_rgb8));
+			rgbtable = malloc(256 * sizeof(color_rgba8));
 			for (i = 16; i < 256; i ++)
 				rgbtable[i] = xterm2rgb(i);
 			break;
