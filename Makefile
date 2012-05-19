@@ -34,7 +34,7 @@ LIBPNGCONFIG = libpng-config
 CFLAGS := $(CFLAGS) $(shell $(LIBPNGCONFIG) --cflags)
 CPPFLAGS := $(CPPFLAGS) $(DEFS) $(shell $(LIBPNGCONFIG) --cppflags)
 LDFLAGS := $(LDFLAGS) $(shell $(LIBPNGCONFIG) --ldflags)
-LIBS := $(LIBS) $(shell $(LIBPNGCONFIG) --libs)
+LIBS := $(LIBS) $(shell $(LIBPNGCONFIG) --libs) -lz
 
 all: img2xterm man6/img2xterm.6.gz
 
