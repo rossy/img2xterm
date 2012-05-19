@@ -29,16 +29,12 @@ else
 	endif
 endif
 
-ifeq ($(shell sh -c 'which MagickWand-config>/dev/null 2>/dev/null && echo y'), y)
-	WANDCONFIG = MagickWand-config
-else
-	WANDCONFIG = Wand-config
-endif
+LIBPNGCONFIG = libpng-config
 
-CFLAGS := $(CFLAGS) $(shell $(WANDCONFIG) --cflags)
-CPPFLAGS := $(CPPFLAGS) $(DEFS) $(shell $(WANDCONFIG) --cppflags)
-LDFLAGS := $(LDFLAGS) $(shell $(WANDCONFIG) --ldflags)
-LIBS := $(LIBS) $(shell $(WANDCONFIG) --libs)
+CFLAGS := $(CFLAGS) $(shell $(LIBPNGCONFIG) --cflags)
+CPPFLAGS := $(CPPFLAGS) $(DEFS) $(shell $(LIBPNGCONFIG) --cppflags)
+LDFLAGS := $(LDFLAGS) $(shell $(LIBPNGCONFIG) --ldflags)
+LIBS := $(LIBS) $(shell $(LIBPNGCONFIG) --libs) -lz
 
 all: img2xterm man6/img2xterm.6.gz
 
