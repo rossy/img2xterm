@@ -495,7 +495,7 @@ int main(int argc, char** argv)
   FILE* pngfile = NULL;
 	FILE* outfile = stdout;
 	
-  int bit_depth, color_type;
+  int bit_depth, color_type, color_channels;
   png_uint_32 row_width, image_rows, row_bytes, current_row;
   unsigned long i, j, color1, color2, lastpx1, lastpx2;
 	unsigned char* row1, * row2;
@@ -712,14 +712,14 @@ int main(int argc, char** argv)
   // Update reader data
   png_read_update_info(png, pnginfo);
 
-  if(png_get_channels(png, pnginfo) != 4)
+  row_bytes = png_get_rowbytes(png, pnginfo);
+  color_channels = png_get_channels(png, pnginfo);
+
+  if(color_channels != 4)
   {
-    fprintf(stderr, "%s: got %d color channels instead of 4.\n", binname, png_get_channels(png, pnginfo));
+    fprintf(stderr, "%s: got %d color channels instead of 4.\n", binname, color_channels);
     return 3;
   }
-
-  // Get bytes per row
-  row_bytes = png_get_rowbytes(png, pnginfo);
 
 	if (outfile_str && !(outfile = fopen(outfile_str, "w")))
 	{
