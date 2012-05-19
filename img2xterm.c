@@ -615,7 +615,7 @@ int main(int argc, char** argv)
 			return 5;
 		}
 #endif
-	
+
   // Don't set error data, error callback and warning callback
   png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
   
@@ -678,19 +678,17 @@ int main(int argc, char** argv)
   if(color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) 
     png_set_gray_1_2_4_to_8(png);
   // Convert transparent image to full alpha channel
-  if(png_get_valid(png, pnginfo, PNG_INFO_tRNS)) {
+  if(png_get_valid(png, pnginfo, PNG_INFO_tRNS))
     png_set_tRNS_to_alpha(png);
-    png_set_expand(png);
-  }
   // Convert 16 bit image to 8 bits
   if(bit_depth == 16)
     png_set_strip_16(png);
   // Pack small bit depths properly
   if(bit_depth < 8) 
     png_set_packing(png);
-  // Convert RGB into RGBA, default to transparent alpha
+  // Convert RGB into RGBA
   if(color_type == PNG_COLOR_TYPE_RGB || color_type == PNG_COLOR_TYPE_GRAY)
-    png_set_add_alpha(png, 0x0 /*0xff*/, PNG_FILLER_AFTER);
+    png_set_add_alpha(png, 0xff, PNG_FILLER_AFTER);
   /* Ignore gamma adjustments for now
   // Gamma adjustment
   // Default gamma of 2.2 (bright monitor, dim room)
