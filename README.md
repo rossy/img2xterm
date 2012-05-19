@@ -22,11 +22,12 @@ xterm. Modification was needed in order to fix the range of the grey ramp.
 Dependencies
 ------------
 
-Before compilation, make sure you have development versions of [ImageMagick]
-[4] (for MagickWand) and [Ncurses] [5] (for terminfo support.)
+Before compilation, make sure you have development versions of [libpng] [4] (for reading PNGs), 
+[zlib] [5] (for reading compressed PNGs) and [Ncurses] [6] (for terminfo support.)
 
-[4]: http://www.imagemagick.org
-[5]: http://www.gnu.org/software/ncurses/ncurses.html
+[4]: http://www.libpng.org/pub/png/libpng.html
+[5]: http://www.zlib.net
+[6]: http://www.gnu.org/software/ncurses/ncurses.html
 
 Getting img2xterm
 -----------------
@@ -37,7 +38,7 @@ Getting img2xterm
     $ make
     # make install
 
-  A [GIMP] [6] palette containing the upper 240 colours used in xterm is also
+  A [GIMP] [7] palette containing the upper 240 colours used in xterm is also
   available. It can be used for dithering images before conversion. To install,
   run:
 
@@ -45,7 +46,7 @@ Getting img2xterm
     $ make
     $ cp xterm-256color.gpl ~/.gimp-2.6/palettes/
 
-[6]: http://www.gimp.org
+[7]: http://www.gimp.org
 
 Converting images
 -----------------
@@ -65,9 +66,8 @@ Converting images
 Known issues
 ------------
 
- * Doesn't work in [mosh] [7].
- * There is something wrong with the implementation of [CIE94 delta-E] [8].
- * ImageMagick can be glitchy. Perhaps using libpng would be a better idea.
+ * Doesn't work in [mosh] [8].
+ * There is something wrong with the implementation of [CIE94 delta-E] [9].
 
-[7]: https://github.com/keithw/mosh
-[8]: https://en.wikipedia.org/wiki/Color_difference#CIE94
+[8]: https://github.com/keithw/mosh
+[9]: https://en.wikipedia.org/wiki/Color_difference#CIE94
