@@ -357,7 +357,7 @@ void bifurcate(FILE* file, unsigned char color1, unsigned char color2, char* bst
 	fputs(str, file);
 }
 
-unsigned fillrow(png_bytep pixels, unsigned char* row, unsigned width)
+unsigned fillrow(unsigned char *pixels, unsigned char* row, unsigned width)
 {
 	unsigned i = 0, length = 0;
   color_rgba8 *colors = (color_rgba8 *) pixels;
