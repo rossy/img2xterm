@@ -855,9 +855,6 @@ int main(int argc, char** argv)
 	if (cowheader)
 		fputs("\nEOC\n", outfile);
 	
-  png_read_end(png, NULL);
-  png_destroy_read_struct(&png, &pnginfo, NULL);
-	
 	switch (perceptive)
 	{
 		case 0:
@@ -871,7 +868,13 @@ int main(int argc, char** argv)
 			break;
 	}
 	
-	if (outfile != stdout)
+  png_read_end(png, NULL);
+  png_destroy_read_struct(&png, &pnginfo, NULL);
+  
+  free(pixels);
+  
+  fclose(pngfile);
+  if (outfile != stdout)
 		fclose(outfile);
 	
 	return 0;
