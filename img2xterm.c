@@ -416,6 +416,8 @@ and similar terminal emulators.\n\n\
 Options:\n\
   -c, --cow                   generate a cowfile header\n\
                               (default behavior if invoked as img2cow)\n\
+  -g, --gamma [value]         display gamma to be used when decoding\n\
+                              the image (default: 1.0)\n\
   -h, --help                  display this message\n"
 #ifndef NO_CURSES
 "\
@@ -497,7 +499,9 @@ int main(int argc, char** argv)
   png_uint_32 row_width, image_rows, row_bytes, current_row;
   unsigned long i, j, color1, color2, lastpx1, lastpx2;
 	unsigned char* row1, * row2;
-	
+  double screen_gamma = 1.0;
+  double file_gamma = 1.0;
+
   // Storage for PNG header
   unsigned char png_header[PNG_HEADER_SIZE];	
   png_structp png;
@@ -546,6 +550,11 @@ int main(int argc, char** argv)
 							if (!*++argv || !sscanf(*argv, "%lf", &chroma_weight))
 								usage(1, binname);
 						}
+            else if(!strcmp("gamma", *argv))
+            {
+              if(!*++argv || !sscanf(*argv, "%lf", &screen_gamma))
+                usage(1, binname);
+            }
 						else if (!strcmp("yiq", *argv))
 							perceptive = 2;
 						else
@@ -560,6 +569,10 @@ int main(int argc, char** argv)
 					case 'c':
 						cowheader = 1;
 						break;
+          case 'g':
+            if(*++*argv || !*++argv || !sscanf(*argv, "%lf", &screen_gamma))
+              usage(1, binname);
+            goto nextarg;
 #ifndef NO_CURSES
 					case 'i':
 						use_terminfo = 1;
@@ -665,9 +678,8 @@ int main(int argc, char** argv)
   // Initalize I/O and skip header bytes
   png_init_io(png, pngfile);
   png_set_sig_bytes(png, PNG_HEADER_SIZE);
+  
   png_read_info(png, pnginfo);
-
-  // Query image rows and bytes per row
   png_get_IHDR(png, pnginfo, &row_width, &image_rows, &bit_depth, &color_type, NULL, NULL, NULL);
   
   // libpng input transformations
@@ -689,30 +701,11 @@ int main(int argc, char** argv)
   // Convert RGB into RGBA
   if(color_type == PNG_COLOR_TYPE_RGB || color_type == PNG_COLOR_TYPE_GRAY)
     png_set_add_alpha(png, 0xff, PNG_FILLER_AFTER);
-  /* Ignore gamma adjustments for now
-  // Gamma adjustment
-  // Default gamma of 2.2 (bright monitor, dim room)
-  double screen_gamma = 2.2;
-
-  // Try to find gamma envionrment variables
-  // Check SCREEN_GAMMA and DISPLAY_GAMMA
-  gamma_env = getenv("SCREEN_GAMMA");
-  if(!gamma_env) {
-    gamma_env = getenv("DISPLAY_GAMMA");
-  }
-
-  if(gamma_env) {
-    screen_gamma = strtod(gamma_env, NULL);
-    free(gamma_env);
-  }
-
-  // Use the file gamma to set up transformation, otherwise
-  // default to 2.2
-  double file_gamma = 1.0 / 2.2;;
   
-  png_get_gAMA(png_ptr, pnginfo_ptr, &file_gamma);
-  png_set_gamma(png_ptr, screen_gamma, file_gamma);
-  */
+  // Gamma adjustment
+  png_get_gAMA(png, pnginfo, &file_gamma);
+  png_set_gamma(png, screen_gamma, file_gamma);
+  
   // Interlace handling
   png_set_interlace_handling(png);
 
