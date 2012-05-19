@@ -829,11 +829,9 @@ int main(int argc, char** argv)
 		if (row2)
 			free(row2);
 		
-    
 		if (current_row < image_rows)
     {
       png_read_row(png, pixels, NULL);
-      current_row++;
 #ifndef NO_CURSES
 			if (use_terminfo)
 			{
