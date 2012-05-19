@@ -29,7 +29,7 @@
 #include <string.h>
 #include <limits.h>
 #include <math.h>
-#include <wand/MagickWand.h>
+#include <png.h>
 
 #ifndef NO_CURSES
 #include <term.h>
@@ -39,6 +39,8 @@
 #include <float.h>
 #define INFINITY DBL_MAX
 #endif
+
+#define PNG_HEADER_SIZE 8
 
 enum {
 	color_undef,
@@ -347,26 +349,22 @@ void bifurcate(FILE* file, unsigned char color1, unsigned char color2, char* bst
 	fputs(str, file);
 }
 
-unsigned fillrow(PixelWand** pixels, unsigned char* row, unsigned width)
+unsigned fillrow(png_bytep pixels, unsigned char* row, unsigned width)
 {
 	unsigned i = 0, length = 0;
-	
+  color_rgba8 *colors = (color_rgba8 *) pixels;
+
+
 	switch (perceptive)
 	{
 		case 0:
 			for (; i < width; i ++)
 			{
-				if (PixelGetAlpha(pixels[i]) < 0.5)
+        if(colors[i].a < 127)
 					row[i] = color_transparent;
 				else
 				{
-					color_rgba8 rgb;
-					
-					rgb.r = (unsigned long)(PixelGetRed(pixels[i]) * 255.0);
-					rgb.g = (unsigned long)(PixelGetGreen(pixels[i]) * 255.0);
-					rgb.b = (unsigned long)(PixelGetBlue(pixels[i]) * 255.0);
-					
-					row[i] = rgb2xterm(rgb);
+					row[i] = rgb2xterm(colors[i]);
 					length = i + 1;
 				}
 			}
@@ -374,17 +372,11 @@ unsigned fillrow(PixelWand** pixels, unsigned char* row, unsigned width)
 		case 1:
 			for (; i < width; i ++)
 			{
-				if (PixelGetAlpha(pixels[i]) < 0.5)
+				if(colors[i].a < 127)
 					row[i] = color_transparent;
 				else
 				{
-					color_rgba8 rgb;
-					
-					rgb.r = (unsigned long)(PixelGetRed(pixels[i]) * 255.0);
-					rgb.g = (unsigned long)(PixelGetGreen(pixels[i]) * 255.0);
-					rgb.b = (unsigned long)(PixelGetBlue(pixels[i]) * 255.0);
-					
-					row[i] = rgb2xterm_cie2000(rgb);
+					row[i] = rgb2xterm_cie2000(colors[i]);
 					length = i + 1;
 				}
 			}
@@ -392,17 +384,11 @@ unsigned fillrow(PixelWand** pixels, unsigned char* row, unsigned width)
 		case 2:
 			for (; i < width; i ++)
 			{
-				if (PixelGetAlpha(pixels[i]) < 0.5)
+				if(colors[i].a < 127)
 					row[i] = color_transparent;
 				else
 				{
-					color_rgba8 rgb;
-					
-					rgb.r = (unsigned long)(PixelGetRed(pixels[i]) * 255.0);
-					rgb.g = (unsigned long)(PixelGetGreen(pixels[i]) * 255.0);
-					rgb.b = (unsigned long)(PixelGetBlue(pixels[i]) * 255.0);
-					
-					row[i] = rgb2xterm_yiq(rgb);
+					row[i] = rgb2xterm_yiq(colors[i]);
 					length = i + 1;
 				}
 			}
@@ -494,17 +480,22 @@ const char* basename2(const char* string)
 int main(int argc, char** argv)
 {
 	const char stdin_str[] = "-", * infile = stdin_str, * outfile_str = NULL;
-	char c;
+	
+  char c;
+  FILE* pngfile = NULL;
 	FILE* outfile = stdout;
 	
-	size_t width1, width2;
-	unsigned long i, j, color1, color2, lastpx1, lastpx2;
+  int bit_depth, color_type;
+  png_uint_32 row_width, image_rows, row_bytes, current_row;
+  unsigned long i, j, color1, color2, lastpx1, lastpx2;
 	unsigned char* row1, * row2;
 	
-	MagickWand* science;
-	PixelIterator* iterator;
-	PixelWand** pixels;
-	
+  // Storage for PNG header
+  unsigned char png_header[PNG_HEADER_SIZE];	
+  png_structp png;
+  png_infop pnginfo;
+  unsigned char *pixels;
+
 	binname = *argv;
 	cowheader = !memcmp(basename2(binname), "img2cow", 7);
 	
@@ -617,24 +608,119 @@ int main(int argc, char** argv)
 		}
 #endif
 	
-	MagickWandGenesis();
-	atexit(MagickWandTerminus);
-	science = NewMagickWand();
-	
-	if (!MagickReadImage(science, infile))
-	{
-		DestroyMagickWand(science);
-		fprintf(stderr, "%s: couldn't open input file %s\n", binname, infile == stdin_str ? "<stdin>" : infile);
-		return 3;
-	}
-	
-	if (!(iterator = NewPixelIterator(science)))
-	{
-		DestroyMagickWand(science);
-		fprintf(stderr, "%s: out of memory\n", binname);
-		return 4;
-	}
-	
+  // Don't set error data, error callback and warning callback
+  png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+  
+  if(!png)
+  {
+    fprintf(stderr, "%s: failed to initialize libpng.\n", binname);
+    return 3;
+  }
+
+  pnginfo = png_create_info_struct(png);
+
+  if(!pnginfo)
+  {
+    fprintf(stderr, "%s: failed to initilize libpng.\n", binname);
+    return 3; 
+  }
+
+  if(!(pngfile = fopen(infile, "rb"))) 
+  {
+    fprintf(stderr, "%s: couldn't open input file %s\n", binname, infile == stdin_str ? "<stdin>" : infile);
+    return 3;
+  }
+
+  if(fread(png_header, 1, PNG_HEADER_SIZE, pngfile) != 8) 
+  {
+    fprintf(stderr, "%s: coudn't read PNG header from %s\n", binname, infile == stdin_str ? "<stdin>" : infile);
+    return 3;
+  }
+
+  if(png_sig_cmp(png_header, 0, PNG_HEADER_SIZE))
+  {
+    fprintf(stderr, "%s: %s is not a valid PNG file.\n", binname, infile == stdin_str ? "<stdin>" : infile);
+    return 3;
+  }
+
+  // libpng "exception" handling
+  if(setjmp(png_jmpbuf(png)))
+  {
+    if(pngfile) fclose(pngfile);
+    png_destroy_read_struct(&png, &pnginfo, NULL);
+    
+    fprintf(stderr, "%s: libpng error.\n", binname);
+    return -1;
+  }
+  
+  // Initalize I/O and skip header bytes
+  png_init_io(png, pngfile);
+  png_set_sig_bytes(png, PNG_HEADER_SIZE);
+  png_read_info(png, pnginfo);
+
+  // Query image rows and bytes per row
+  png_get_IHDR(png, pnginfo, &row_width, &image_rows, &bit_depth, &color_type, NULL, NULL, NULL);
+  
+  // libpng input transformations
+  // Convert palette to rgb
+  if(color_type == PNG_COLOR_TYPE_PALETTE) 
+    png_set_palette_to_rgb(png);
+  // Convert greyscale to rgb
+  if(color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) 
+    png_set_gray_1_2_4_to_8(png);
+  // Convert transparent image to full alpha channel
+  if(png_get_valid(png, pnginfo, PNG_INFO_tRNS)) {
+    png_set_tRNS_to_alpha(png);
+    png_set_expand(png);
+  }
+  // Convert 16 bit image to 8 bits
+  if(bit_depth == 16)
+    png_set_strip_16(png);
+  // Pack small bit depths properly
+  if(bit_depth < 8) 
+    png_set_packing(png);
+  // Convert RGB into RGBA, default to transparent alpha
+  if(color_type == PNG_COLOR_TYPE_RGB || color_type == PNG_COLOR_TYPE_GRAY)
+    png_set_add_alpha(png, 0x0 /*0xff*/, PNG_FILLER_AFTER);
+  /* Ignore gamma adjustments for now
+  // Gamma adjustment
+  // Default gamma of 2.2 (bright monitor, dim room)
+  double screen_gamma = 2.2;
+
+  // Try to find gamma envionrment variables
+  // Check SCREEN_GAMMA and DISPLAY_GAMMA
+  gamma_env = getenv("SCREEN_GAMMA");
+  if(!gamma_env) {
+    gamma_env = getenv("DISPLAY_GAMMA");
+  }
+
+  if(gamma_env) {
+    screen_gamma = strtod(gamma_env, NULL);
+    free(gamma_env);
+  }
+
+  // Use the file gamma to set up transformation, otherwise
+  // default to 2.2
+  double file_gamma = 1.0 / 2.2;;
+  
+  png_get_gAMA(png_ptr, pnginfo_ptr, &file_gamma);
+  png_set_gamma(png_ptr, screen_gamma, file_gamma);
+  */
+  // Interlace handling
+  png_set_interlace_handling(png);
+
+  // Update reader data
+  png_read_update_info(png, pnginfo);
+
+  if(png_get_channels(png, pnginfo) != 4)
+  {
+    fprintf(stderr, "%s: got %d color channels instead of 4.\n", binname, png_get_channels(png, pnginfo));
+    return 3;
+  }
+
+  // Get bytes per row
+  row_bytes = png_get_rowbytes(png, pnginfo);
+
 	if (outfile_str && !(outfile = fopen(outfile_str, "w")))
 	{
 		fprintf(stderr, "%s: couldn't open output file %s\n", binname, outfile_str);
@@ -670,19 +756,31 @@ int main(int argc, char** argv)
 			fputs("$thoughts\n", outfile);
 		}
 	}
+  
+  current_row = 0;
+  pixels = malloc(row_bytes);
+  if(!pixels)
+  {
+    fprintf(stderr, "%s: out of memory\n", binname);
+		return 4;
+  }
+
+  png_read_row(png, pixels, NULL);
 	
-	pixels = PixelGetNextIteratorRow(iterator, &width1);
-	while (pixels)
+  while (current_row < image_rows)
 	{
-		row1 = malloc(width1 * sizeof(unsigned char));
-		lastpx1 = fillrow(pixels, row1, width1);
+		row1 = malloc(row_width * sizeof(unsigned char));
+		lastpx1 = fillrow(pixels, row1, row_width);
+    current_row++;
 		
-		if ((pixels = PixelGetNextIteratorRow(iterator, &width2)))
+		if (current_row < image_rows)
 		{
-			row2 = malloc(width2 * sizeof(unsigned char));
-			lastpx2 = fillrow(pixels, row2, width2);
+      png_read_row(png, pixels, NULL);
+			row2 = malloc(row_width * sizeof(unsigned char));
+			lastpx2 = fillrow(pixels, row2, row_width);
 			if (lastpx2 > lastpx1)
 				lastpx1 = lastpx2;
+      current_row++;
 		}
 		else
 			row2 = NULL;
@@ -698,8 +796,8 @@ int main(int argc, char** argv)
 		
 		for (i = 0; i < lastpx1; i ++)
 		{
-			color1 = i < width1 ? row1[i] : color_transparent;
-			color2 = i < width2 ? row2 ? row2[i] : color_transparent : color_transparent;
+			color1 = i < row_width ? row1[i] : color_transparent;
+			color2 = i < row_width ? row2 ? row2[i] : color_transparent : color_transparent;
 			if (background == 1)
 			{
 				if (i + margin == stemmargin)
@@ -722,7 +820,11 @@ int main(int argc, char** argv)
 		if (row2)
 			free(row2);
 		
-		if ((pixels = PixelGetNextIteratorRow(iterator, &width1)))
+    
+		if (current_row < image_rows)
+    {
+      png_read_row(png, pixels, NULL);
+      current_row++;
 #ifndef NO_CURSES
 			if (use_terminfo)
 			{
@@ -740,6 +842,7 @@ int main(int argc, char** argv)
 			else
 				fputc('\n', outfile);
 #ifndef NO_CURSES
+    }
 		else if (use_terminfo)
 			fprintf(outfile, "%s\n", ti_op);
 #endif
@@ -754,8 +857,8 @@ int main(int argc, char** argv)
 	if (cowheader)
 		fputs("\nEOC\n", outfile);
 	
-	DestroyPixelIterator(iterator);
-	DestroyMagickWand(science);
+  png_read_end(png, NULL);
+  png_destroy_read_struct(&png, &pnginfo, NULL);
 	
 	switch (perceptive)
 	{
