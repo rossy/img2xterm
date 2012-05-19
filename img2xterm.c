@@ -41,6 +41,8 @@
 #endif
 
 #define PNG_HEADER_SIZE 8
+png_structp png;
+png_infop pnginfo;
 
 enum {
 	color_undef,
@@ -92,6 +94,12 @@ char* ti_setb;
 char* ti_setf;
 char* ti_op;
 #endif
+
+void png_cleanup()
+{
+  if(png && pnginfo)
+    png_destroy_read_struct(&png, &pnginfo, NULL);
+}
 
 color_lab srgb2lab(color_rgba8 rgb)
 {
@@ -619,6 +627,8 @@ int main(int argc, char** argv)
 
   pnginfo = png_create_info_struct(png);
 
+  atexit(png_cleanup);
+
   if(!pnginfo)
   {
     fprintf(stderr, "%s: failed to initilize libpng.\n", binname);
@@ -647,7 +657,6 @@ int main(int argc, char** argv)
   if(setjmp(png_jmpbuf(png)))
   {
     if(pngfile) fclose(pngfile);
-    png_destroy_read_struct(&png, &pnginfo, NULL);
     
     fprintf(stderr, "%s: libpng error.\n", binname);
     return -1;
