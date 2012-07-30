@@ -22,12 +22,11 @@ xterm. Modification was needed in order to fix the range of the grey ramp.
 Dependencies
 ------------
 
-Before compilation, make sure you have development versions of [libpng] [4] (for reading PNGs), 
-[zlib] [5] (for reading compressed PNGs) and [Ncurses] [6] (for terminfo support.)
+Before compilation, make sure you have development versions of [libpng]
+[4] (for image reading) and [Ncurses] [5] (for terminfo support.)
 
 [4]: http://www.libpng.org/pub/png/libpng.html
-[5]: http://www.zlib.net
-[6]: http://www.gnu.org/software/ncurses/ncurses.html
+[5]: http://www.gnu.org/software/ncurses/ncurses.html
 
 Getting img2xterm
 -----------------
@@ -46,7 +45,7 @@ Getting img2xterm
     $ make
     $ cp xterm-256color.gpl ~/.gimp-2.6/palettes/
 
-[7]: http://www.gimp.org
+[6]: http://www.gimp.org
 
 Converting images
 -----------------
@@ -65,9 +64,8 @@ Converting images
 
 Known issues
 ------------
+ * Doesn't work in [mosh] [7].
+ * There is something wrong with the implementation of [CIE94 delta-E] [8].
 
- * Doesn't work in [mosh] [8].
- * There is something wrong with the implementation of [CIE94 delta-E] [9].
-
-[8]: https://github.com/keithw/mosh
-[9]: https://en.wikipedia.org/wiki/Color_difference#CIE94
+[7]: https://github.com/keithw/mosh
+[8]: https://en.wikipedia.org/wiki/Color_difference#CIE94
