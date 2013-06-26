@@ -57,9 +57,9 @@ man6/img2xterm.6: img2xterm.c | man6 img2xterm
 	help2man -s 6 -N -m " " --version-string="git" ./img2xterm -o $@
 
 install: img2xterm
-	$(INSTALL) -D -m 0755 img2xterm $(PREFIX)/bin/img2xterm
+	$(INSTALL) -d -m 0755 img2xterm $(PREFIX)/bin/img2xterm
 	$(LN) $(PREFIX)/bin/img2xterm $(PREFIX)/bin/img2cow
-	$(INSTALL) -D -m 0644 man6/img2xterm.6.gz $(PREFIX)/share/man/man6/img2xterm.6.gz
+	$(INSTALL) -d -m 0644 man6/img2xterm.6.gz $(PREFIX)/share/man/man6/img2xterm.6.gz
 	$(LN) $(PREFIX)/share/man/man6/img2xterm.6.gz $(PREFIX)/share/man/man6/img2cow.6.gz
 
 clean:
