@@ -251,19 +251,12 @@ void bifurcate(FILE* file, unsigned long color1, unsigned long color2, char* bst
 	if (bg != oldbg)
 	{
 		if (bg == color_transparent)
-			fputs(cowheader ? "\\e[49" : "\e[49", file);
+			fputs(cowheader ? "\\e[49m" : "\e[49m", file);
 		else
-			fprintf(file, cowheader ? "\\e[48;5;%lu" : "\e[48;5;%lu", bg);
-		
-		if (fg != oldfg)
-			if (fg == color_undef)
-				fputs(";39m", file);
-			else
-				fprintf(file, ";38;5;%lum", fg);
-		else
-			fputc('m', file);
+			fprintf(file, cowheader ? "\\e[48;5;%lum" : "\e[48;5;%lum", bg);
 	}
-	else if (fg != oldfg)
+
+	if (fg != oldfg)
 	{
 		if (fg == color_undef)
 			fputs(cowheader ? "\\e[39m" : "\e[39m", file);
