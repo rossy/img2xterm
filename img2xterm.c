@@ -1,26 +1,12 @@
-/*
- *                THE STRONGEST PUBLIC LICENSE
- *                  Draft 1, November 2010
+/* img2xterm - convert images to 256 color block elements for use in cowfiles
  *
- * Everyone is permitted to copy and distribute verbatim or modified
- * copies of this license document, and changing it is allowed as long
- * as the name is changed.
+ * To the extent possible under law, the author(s) have dedicated all copyright
+ * and related and neighboring rights to this software to the public domain
+ * worldwide. This software is distributed without any warranty.
  *
- *                  THE STRONGEST PUBLIC LICENSE
- *   TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION
- *
- *  ⑨. This license document permits you to DO WHAT THE FUCK YOU WANT TO
- *      as long as you APPRECIATE CIRNO AS THE STRONGEST IN GENSOKYO.
- *
- * This program is distributed in the hope that it will be THE STRONGEST,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * USEFULNESS or FITNESS FOR A PARTICULAR PURPOSE.
- */
-
-/* 
- * img2xterm -- convert images to 256 color block elements for use in cowfiles
- * written in the spirit of img2cow, with modified (bugfixed) code from
- * xterm256-conv2 by Wolfgang Frisch (xororand@frexx.de)
+ * You should have received a copy of the CC0 Public Domain Dedication along
+ * with this software. If not, see
+ * <http://creativecommons.org/publicdomain/zero/1.0/>.
  */
 
 #define _GNU_SOURCE
@@ -66,26 +52,26 @@ void srgb2lab(unsigned char red, unsigned char green, unsigned char blue, double
 	double r = (double)red / 255.0;
 	double g = (double)green / 255.0;
 	double b = (double)blue / 255.0;
-	
+
 	double rl = r <= 0.4045 ? r / 12.92 : pow((r + 0.055) / 1.055, 2.4);
 	double gl = g <= 0.4045 ? g / 12.92 : pow((g + 0.055) / 1.055, 2.4);
 	double bl = b <= 0.4045 ? b / 12.92 : pow((b + 0.055) / 1.055, 2.4);
-	
+
 	double x = 0.4124564 * rl + 0.3575761 * gl + 0.1804375 * bl;
 	double y = 0.2126729 * rl + 0.7151522 * gl + 0.0721750 * bl;
 	double z = 0.0193339 * rl + 0.1191920 * gl + 0.9503041 * bl;
-	
+
 	double xn = x / 0.95047;
 	double yn = y;
 	double zn = z / 1.08883;
-	
+
 	double fxn = xn > (216.0 / 24389.0) ? pow(xn, 1.0 / 3.0)
 		: (841.0 / 108.0) * xn + (4.0 / 29.0);
 	double fyn = yn > (216.0 / 24389.0) ? pow(yn, 1.0 / 3.0)
 		: (841.0 / 108.0) * yn + (4.0 / 29.0);
 	double fzn = zn > (216.0 / 24389.0) ? pow(zn, 1.0 / 3.0)
 		: (841.0 / 108.0) * zn + (4.0 / 29.0);
-	
+
 	*lightness = 116.0 * fyn - 16.0;
 	*aa = (500.0 * (fxn - fyn)) * chroma_weight;
 	*bb = (200.0 * (fyn - fzn)) * chroma_weight;
@@ -96,7 +82,7 @@ void srgb2yiq(unsigned char red, unsigned char green, unsigned char blue, double
 	double r = (double)red / 255.0;
 	double g = (double)green / 255.0;
 	double b = (double)blue / 255.0;
-	
+
 	*y =   0.299    * r +  0.587    * g +  0.144    * b;
 	*i =  (0.595716 * r + -0.274453 * g + -0.321263 * b) * chroma_weight;
 	*q =  (0.211456 * r + -0.522591 * g +  0.311135 * b) * chroma_weight;
@@ -107,7 +93,7 @@ double cie94(double l1, double a1, double b1, double l2, double a2, double b2)
 	const double kl = 1;
 	const double k1 = 0.045;
 	const double k2 = 0.015;
-	
+
 	double c1 = sqrt(a1 * a1 + b1 * b1);
 	double c2 = sqrt(a2 * a2 + b2 * b2);
 	double dl = l1 - l2;
@@ -115,11 +101,11 @@ double cie94(double l1, double a1, double b1, double l2, double a2, double b2)
 	double da = a1 - a2;
 	double db = b1 - b2;
 	double dh = sqrt(da * da + db * db - dc * dc);
-	
+
 	double t1 = dl / kl;
 	double t2 = dc / (1 + k1 * c1);
 	double t3 = dh / (1 + k2 * c1);
-	
+
 	return sqrt(t1 * t1 + t2 * t2 + t3 * t3);
 }
 
@@ -141,9 +127,9 @@ unsigned long rgb2xterm_cie94(unsigned char r, unsigned char g, unsigned char b)
 	unsigned long i = 16, ret = 0;
 	double d, smallest_distance = INFINITY;
 	double l, aa, bb;
-	
+
 	srgb2lab(r, g, b, &l, &aa, &bb);
-	
+
 	for (; i < 256; i++)
 	{
 		d = cie94(l, aa, bb, labtable[i * 3], labtable[i * 3 + 1], labtable[i * 3 + 2]);
@@ -153,7 +139,7 @@ unsigned long rgb2xterm_cie94(unsigned char r, unsigned char g, unsigned char b)
 			ret = i;
 		}
 	}
-	
+
 	return ret;
 }
 
@@ -162,13 +148,13 @@ unsigned long rgb2xterm_yiq(unsigned char r, unsigned char g, unsigned char b)
 	unsigned long i = 16, ret = 0;
 	double d, smallest_distance = INFINITY;
 	double y, ii, q;
-	
+
 	srgb2yiq(r, g, b, &y, &ii, &q);
-	
+
 	for (; i < 256; i++)
 	{
-		d = (y - labtable[i * 3]) * (y - labtable[i * 3]) + 
-			(ii - labtable[i * 3 + 1]) * (ii - labtable[i * 3 + 1]) + 
+		d = (y - labtable[i * 3]) * (y - labtable[i * 3]) +
+			(ii - labtable[i * 3 + 1]) * (ii - labtable[i * 3 + 1]) +
 			(q - labtable[i * 3 + 2]) * (q - labtable[i * 3 + 2]);
 		if (d < smallest_distance)
 		{
@@ -176,14 +162,14 @@ unsigned long rgb2xterm_yiq(unsigned char r, unsigned char g, unsigned char b)
 			ret = i;
 		}
 	}
-	
+
 	return ret;
 }
 
 unsigned long rgb2xterm(unsigned char r, unsigned char g, unsigned char b)
 {
 	unsigned long i = 16, d, ret = 0, smallest_distance = UINT_MAX;
-	
+
 	for (; i < 256; i++)
 	{
 		d = (colortable[i * 3] - r) * (colortable[i * 3] - r) +
@@ -195,7 +181,7 @@ unsigned long rgb2xterm(unsigned char r, unsigned char g, unsigned char b)
 			ret = i;
 		}
 	}
-	
+
 	return ret;
 }
 
@@ -204,7 +190,7 @@ void bifurcate(FILE* file, unsigned long color1, unsigned long color2, char* bst
 	unsigned long fg = oldfg;
 	unsigned long bg = oldbg;
 	char* str = cowheader ? "\\N{U+2584}" : "\xe2\x96\x84";
-	
+
 	if (color1 == color2)
 	{
 		bg = color1;
@@ -228,7 +214,7 @@ void bifurcate(FILE* file, unsigned long color1, unsigned long color2, char* bst
 			bg = color1;
 			fg = color2;
 		}
-	
+
 #ifndef NO_CURSES
 	if (use_terminfo)
 	{
@@ -242,7 +228,7 @@ void bifurcate(FILE* file, unsigned long color1, unsigned long color2, char* bst
 			else
 				fputs(tparm(ti_setb, bg), file);
 		}
-		
+
 		if (fg != oldfg)
 			fputs(tparm(ti_setf, fg), file);
 	}
@@ -263,17 +249,17 @@ void bifurcate(FILE* file, unsigned long color1, unsigned long color2, char* bst
 		else
 			fprintf(file, cowheader ? "\\e[38;5;%lum" : "\e[38;5;%lum", fg);
 	}
-	
+
 	oldbg = bg;
 	oldfg = fg;
-	
+
 	fputs(str, file);
 }
 
 unsigned long fillrow(PixelWand** pixels, unsigned long* row, unsigned long width)
 {
 	unsigned long i = 0, lastpx = 0;
-	
+
 	switch (perceptive)
 	{
 		case 0:
@@ -322,7 +308,7 @@ unsigned long fillrow(PixelWand** pixels, unsigned long* row, unsigned long widt
 			}
 			break;
 	}
-	
+
 	return lastpx + 1;
 }
 
@@ -391,19 +377,19 @@ int main(int argc, char** argv)
 	const char stdin_str[] = "-", * infile = stdin_str, * outfile_str = NULL, * binname = *argv;
 	char c;
 	FILE* outfile = stdout;
-	
+
 	size_t width1, width2;
 	unsigned long i, j, * row1, * row2, color1, color2, lastpx1, lastpx2, margin = 0;
-	
+
 	int background = 0;
 	unsigned long stemlen = 4, stemmargin = 11;
-	
+
 	MagickWand* science;
 	PixelIterator* iterator;
 	PixelWand** pixels;
-	
+
 	cowheader = !memcmp(basename2(binname), "img2cow", 7);
-	
+
 	while (*++argv)
 		if (**argv == '-')
 		{
@@ -500,10 +486,10 @@ int main(int argc, char** argv)
 			outfile_str = *argv;
 		else
 			usage(1, binname);
-	
+
 	if (!cowheader && background == 1)
 		background = 0;
-	
+
 #ifndef NO_CURSES
 	if (use_terminfo)
 	{
@@ -522,36 +508,36 @@ int main(int argc, char** argv)
 		}
 	}
 #endif
-	
+
 	MagickWandGenesis();
 	atexit(MagickWandTerminus);
 	science = NewMagickWand();
-	
+
 	if (!MagickReadImage(science, infile))
 	{
 		DestroyMagickWand(science);
 		fprintf(stderr, "%s: couldn't open input file %s\n", binname, infile == stdin_str ? "<stdin>" : infile);
 		return 3;
 	}
-	
+
 	if (!(iterator = NewPixelIterator(science)))
 	{
 		DestroyMagickWand(science);
 		fprintf(stderr, "%s: out of memory\n", binname);
 		return 4;
 	}
-	
+
 	if (outfile_str && !(outfile = fopen(outfile_str, "w")))
 	{
 		fprintf(stderr, "%s: couldn't open output file %s\n", binname, outfile_str);
 		return 2;
 	}
-	
+
 	if (perceptive)
 	{
 		unsigned char rgb[3];
 		double l, a, b;
-		
+
 		labtable = malloc(256 * 3 * sizeof(double));
 		for (i = 16; i < 256; i ++)
 		{
@@ -581,13 +567,13 @@ int main(int argc, char** argv)
 			fputs("$thoughts\n", outfile);
 		}
 	}
-	
+
 	pixels = PixelGetNextIteratorRow(iterator, &width1);
 	while (pixels)
 	{
 		row1 = malloc(width1 * sizeof(unsigned long));
 		lastpx1 = fillrow(pixels, row1, width1);
-		
+
 		if ((pixels = PixelGetNextIteratorRow(iterator, &width2)))
 		{
 			row2 = malloc(width2 * sizeof(unsigned long));
@@ -597,16 +583,16 @@ int main(int argc, char** argv)
 		}
 		else
 			row2 = NULL;
-		
+
 		for (i = 0; i < margin; i ++)
 			if (background && i == stemmargin)
 				bifurcate(outfile, color_transparent, color_transparent, "$thoughts");
 			else
 				fputc(' ', outfile);
-		
+
 		if (background == 1 && lastpx1 < stemmargin + 1)
 			lastpx1 = stemmargin + 1;
-		
+
 		for (i = 0; i < lastpx1; i ++)
 		{
 			color1 = i < width1 ? row1[i] : color_transparent;
@@ -628,11 +614,11 @@ int main(int argc, char** argv)
 			}
 			bifurcate(outfile, color1, color2, NULL);
 		}
-		
+
 		free(row1);
 		if (row2)
 			free(row2);
-		
+
 		if ((pixels = PixelGetNextIteratorRow(iterator, &width1)))
 #ifndef NO_CURSES
 			if (use_terminfo)
@@ -658,18 +644,18 @@ int main(int argc, char** argv)
 			fputs(cowheader ? "\\e[39m\n" : "\e[39m\n", outfile);
 		else
 			fputs(cowheader ? "\\e[39;49m\n" : "\e[39;49m\n", outfile);
-		
+
 		stemmargin ++;
 	}
-	
+
 	if (cowheader)
 		fputs("\nEOC\n", outfile);
-	
+
 	DestroyPixelIterator(iterator);
 	DestroyMagickWand(science);
 	free(colortable);
 	if (outfile != stdout)
 		fclose(outfile);
-	
+
 	return 0;
 }

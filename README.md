@@ -69,3 +69,12 @@ Known issues
  * ImageMagick can be glitchy. Perhaps using libpng would be a better idea.
 
 [8]: https://en.wikipedia.org/wiki/Color_difference#CIE94
+
+Copying
+-------
+
+To the extent possible under law, the author(s) have dedicated all copyright
+and related and neighboring rights to this software to the public domain
+worldwide. This software is distributed without any warranty.
+
+[![CC0](http://i.creativecommons.org/p/zero/1.0/80x15.png)](http://creativecommons.org/publicdomain/zero/1.0/)
