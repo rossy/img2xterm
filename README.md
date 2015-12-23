@@ -64,8 +64,6 @@ Converting images
 
 Known issues
 ------------
- * Doesn't work in [mosh] [7].
  * There is something wrong with the implementation of [CIE94 delta-E] [8].
 
-[7]: https://github.com/keithw/mosh
 [8]: https://en.wikipedia.org/wiki/Color_difference#CIE94
