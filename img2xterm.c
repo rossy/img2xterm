@@ -23,7 +23,9 @@
  * xterm256-conv2 by Wolfgang Frisch (xororand@frexx.de)
  */
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -474,8 +476,9 @@ const char* basename2(const char* string)
 	for (; *string; string++)
 #if defined(WIN32) || defined(_WIN32)
 		if (*string == '/' || *string == '\\')
-#endif
+#else
 		if (*string == '/')
+#endif
 			ret = string + 1;
 	return ret;
 }
@@ -832,8 +835,8 @@ int main(int argc, char** argv)
 			}
 			else
 				fputc('\n', outfile);
-#ifndef NO_CURSES
 		}
+#ifndef NO_CURSES
 		else if (use_terminfo)
 			fprintf(outfile, "%s\n", ti_op);
 #endif
