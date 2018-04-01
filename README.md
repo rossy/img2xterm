@@ -22,24 +22,24 @@ xterm. Modification was needed in order to fix the range of the grey ramp.
 Dependencies
 ------------
 
-Before compilation, make sure you have development versions of [ImageMagick]
-[4] (for MagickWand) and [Ncurses] [5] (for terminfo support.)
+Before compilation, make sure you have development versions of [libpng]
+[4] (for image reading) and [Ncurses] [5] (for terminfo support, optional).
 
-[4]: http://www.imagemagick.org
+[4]: http://www.libpng.org/pub/png/libpng.html
 [5]: http://www.gnu.org/software/ncurses/ncurses.html
 
 Getting img2xterm
 -----------------
 
-  The GNU Autotools are not required. To compile and install from source,
-  simply run:
+The GNU Autotools are not required. To compile and install from source,
+simply run:
 
     $ make
     # make install
 
-  A [GIMP] [6] palette containing the upper 240 colours used in xterm is also
-  available. It can be used for dithering images before conversion. To install,
-  run:
+A [GIMP] [7] palette containing the upper 240 colours used in xterm is also
+available. It can be used for dithering images before conversion. To install,
+run:
 
     $ cd extra/
     $ make
@@ -50,23 +50,21 @@ Getting img2xterm
 Converting images
 -----------------
 
-  To display an image on a compatible 256-color terminal:
+To display an image on a compatible 256-color terminal:
 
     $ img2xterm image.png
 
-  `img2cow` is a symlink to the `img2xterm` command. When invoked in this way,
-  the program behaves as if the `--cow` option was used.
+`img2cow` is a symlink to the `img2xterm` command. When invoked in this way,
+the program behaves as if the `--cow` option was used.
 
-  To generate a cowfile:
+To generate a cowfile:
 
     $ img2cow image.png image.cow
     # cp image.cow /usr/share/cows
 
 Known issues
 ------------
-
- * There is something wrong with the implementation of [CIE94 delta-E] [8].
- * ImageMagick can be glitchy. Perhaps using libpng would be a better idea.
+* There is something wrong with the implementation of [CIE94 delta-E] [8].
 
 [8]: https://en.wikipedia.org/wiki/Color_difference#CIE94
 
