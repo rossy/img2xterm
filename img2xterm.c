@@ -1,8 +1,10 @@
-/* img2xterm - convert images to 256 color block elements for use in cowfiles
+/*
+ *                THE STRONGEST PUBLIC LICENSE
+ *                  Draft 1, November 2010
  *
- * To the extent possible under law, the author(s) have dedicated all copyright
- * and related and neighboring rights to this software to the public domain
- * worldwide. This software is distributed without any warranty.
+ * Everyone is permitted to copy and distribute verbatim or modified
+ * copies of this license document, and changing it is allowed as long
+ * as the name is changed.
  *
  *                  THE STRONGEST PUBLIC LICENSE
  *   TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION
@@ -681,7 +683,7 @@ int main(int argc, char** argv)
 		png_set_palette_to_rgb(png);
 	// Convert greyscale to rgb
 	if(color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8)
-		png_set_gray_1_2_4_to_8(png);
+        png_set_expand_gray_1_2_4_to_8(png);
 	// Convert transparent image to full alpha channel
 	if(png_get_valid(png, pnginfo, PNG_INFO_tRNS))
 		png_set_tRNS_to_alpha(png);
