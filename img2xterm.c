@@ -1,21 +1,37 @@
-/* img2xterm - convert images to 256 color block elements for use in cowfiles
+/*
+ *                THE STRONGEST PUBLIC LICENSE
+ *                  Draft 1, November 2010
  *
- * To the extent possible under law, the author(s) have dedicated all copyright
- * and related and neighboring rights to this software to the public domain
- * worldwide. This software is distributed without any warranty.
+ * Everyone is permitted to copy and distribute verbatim or modified
+ * copies of this license document, and changing it is allowed as long
+ * as the name is changed.
  *
- * You should have received a copy of the CC0 Public Domain Dedication along
- * with this software. If not, see
- * <http://creativecommons.org/publicdomain/zero/1.0/>.
+ *                  THE STRONGEST PUBLIC LICENSE
+ *   TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION
+ *
+ *  ⑨. This license document permits you to DO WHAT THE FUCK YOU WANT TO
+ *      as long as you APPRECIATE CIRNO AS THE STRONGEST IN GENSOKYO.
+ *
+ * This program is distributed in the hope that it will be THE STRONGEST,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * USEFULNESS or FITNESS FOR A PARTICULAR PURPOSE.
  */
 
+/*
+ * img2xterm -- convert images to 256 color block elements for use in cowfiles
+ * written in the spirit of img2cow, with modified (bugfixed) code from
+ * xterm256-conv2 by Wolfgang Frisch (xororand@frexx.de)
+ */
+
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <limits.h>
 #include <math.h>
-#include <wand/MagickWand.h>
+#include <png.h>
 
 #ifndef NO_CURSES
 #include <term.h>
@@ -26,19 +42,53 @@
 #define INFINITY DBL_MAX
 #endif
 
+#define PNG_HEADER_SIZE 8
+png_structp png;
+png_infop pnginfo;
+
 enum {
-	color_undef,
-	color_transparent,
+    color_undef,
+    color_transparent,
 };
 
-unsigned char* colortable;
-double* labtable;
-
 const unsigned char valuerange[] = { 0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff };
-unsigned long oldfg = color_undef;
-unsigned long oldbg = color_undef;
-int perceptive = 0, cowheader;
+
+typedef struct _color_lab {
+    double l;
+    double a;
+    double b;
+} color_lab;
+
+typedef struct _color_yiq {
+    double y;
+    double i;
+    double q;
+} color_yiq;
+
+typedef struct _color_rgba8 {
+    unsigned char r;
+    unsigned char g;
+    unsigned char b;
+    unsigned char a;
+} color_rgba8;
+
+color_rgba8* rgbtable;
+color_lab* labtable;
+color_yiq* yiqtable;
+
+char* binname;
+
+unsigned perceptive = 0,
+    cowheader = 0,
+    background = 0,
+    margin = 0,
+    stemlen = 4,
+    stemmargin = 11;
+
 double chroma_weight = 1.0;
+
+unsigned char oldfg = color_undef,
+    oldbg = color_undef;
 
 #ifndef NO_CURSES
 int use_terminfo = 0;
@@ -47,274 +97,312 @@ char* ti_setf;
 char* ti_op;
 #endif
 
-void srgb2lab(unsigned char red, unsigned char green, unsigned char blue, double* lightness, double* aa, double* bb)
+void png_cleanup()
 {
-	double r = (double)red / 255.0;
-	double g = (double)green / 255.0;
-	double b = (double)blue / 255.0;
-
-	double rl = r <= 0.4045 ? r / 12.92 : pow((r + 0.055) / 1.055, 2.4);
-	double gl = g <= 0.4045 ? g / 12.92 : pow((g + 0.055) / 1.055, 2.4);
-	double bl = b <= 0.4045 ? b / 12.92 : pow((b + 0.055) / 1.055, 2.4);
-
-	double x = 0.4124564 * rl + 0.3575761 * gl + 0.1804375 * bl;
-	double y = 0.2126729 * rl + 0.7151522 * gl + 0.0721750 * bl;
-	double z = 0.0193339 * rl + 0.1191920 * gl + 0.9503041 * bl;
-
-	double xn = x / 0.95047;
-	double yn = y;
-	double zn = z / 1.08883;
-
-	double fxn = xn > (216.0 / 24389.0) ? pow(xn, 1.0 / 3.0)
-		: (841.0 / 108.0) * xn + (4.0 / 29.0);
-	double fyn = yn > (216.0 / 24389.0) ? pow(yn, 1.0 / 3.0)
-		: (841.0 / 108.0) * yn + (4.0 / 29.0);
-	double fzn = zn > (216.0 / 24389.0) ? pow(zn, 1.0 / 3.0)
-		: (841.0 / 108.0) * zn + (4.0 / 29.0);
-
-	*lightness = 116.0 * fyn - 16.0;
-	*aa = (500.0 * (fxn - fyn)) * chroma_weight;
-	*bb = (200.0 * (fyn - fzn)) * chroma_weight;
+    if(png && pnginfo)
+        png_destroy_read_struct(&png, &pnginfo, NULL);
 }
 
-void srgb2yiq(unsigned char red, unsigned char green, unsigned char blue, double* y, double* i, double* q)
+color_lab srgb2lab(color_rgba8 rgb)
 {
-	double r = (double)red / 255.0;
-	double g = (double)green / 255.0;
-	double b = (double)blue / 255.0;
+    double r = (double)rgb.r / 255.0;
+    double g = (double)rgb.g / 255.0;
+    double b = (double)rgb.b / 255.0;
 
-	*y =   0.299    * r +  0.587    * g +  0.144    * b;
-	*i =  (0.595716 * r + -0.274453 * g + -0.321263 * b) * chroma_weight;
-	*q =  (0.211456 * r + -0.522591 * g +  0.311135 * b) * chroma_weight;
+    double rl = r <= 0.4045 ? r / 12.92 : pow((r + 0.055) / 1.055, 2.4);
+    double gl = g <= 0.4045 ? g / 12.92 : pow((g + 0.055) / 1.055, 2.4);
+    double bl = b <= 0.4045 ? b / 12.92 : pow((b + 0.055) / 1.055, 2.4);
+
+    double x = (5067776.0/12288897.0) * rl + (4394405.0/12288897.0) * gl + ( 4435075.0/24577794.0) * bl;
+    double y = ( 871024.0/4096299.0 ) * rl + (8788810.0/12288897.0) * gl + (  887015.0/12288897.0) * bl;
+    double z = (  79184.0/4096299.0 ) * rl + (4394405.0/36866691.0) * gl + (70074185.0/73733382.0) * bl;
+
+    double xn = x / (31271.0/32902.0);
+    double yn = y;
+    double zn = z / (35827.0/32902.0);
+
+    double fxn = xn > (216.0 / 24389.0) ? pow(xn, 1.0 / 3.0)
+        : ((24389.0 / 27.0) * xn + 16.0) / 116.0;
+    double fyn = yn > (216.0 / 24389.0) ? pow(yn, 1.0 / 3.0)
+        : ((24389.0 / 27.0) * yn + 16.0) / 116.0;
+    double fzn = zn > (216.0 / 24389.0) ? pow(zn, 1.0 / 3.0)
+        : ((24389.0 / 27.0) * zn + 16.0) / 116.0;
+
+    color_lab lab;
+
+    lab.l = 116.0 * fyn - 16.0;
+    lab.a = (500.0 * (fxn - fyn)) * chroma_weight;
+    lab.b = (200.0 * (fyn - fzn)) * chroma_weight;
+
+    return lab;
 }
 
-double cie94(double l1, double a1, double b1, double l2, double a2, double b2)
+color_yiq srgb2yiq(color_rgba8 rgb)
 {
-	const double kl = 1;
-	const double k1 = 0.045;
-	const double k2 = 0.015;
+    double r = (double)rgb.r / 255.0;
+    double g = (double)rgb.g / 255.0;
+    double b = (double)rgb.b / 255.0;
 
-	double c1 = sqrt(a1 * a1 + b1 * b1);
-	double c2 = sqrt(a2 * a2 + b2 * b2);
-	double dl = l1 - l2;
-	double dc = c1 - c2;
-	double da = a1 - a2;
-	double db = b1 - b2;
-	double dh = sqrt(da * da + db * db - dc * dc);
+    color_yiq yiq;
 
-	double t1 = dl / kl;
-	double t2 = dc / (1 + k1 * c1);
-	double t3 = dh / (1 + k2 * c1);
+    yiq.y =   0.299    * r +  0.587    * g +  0.144    * b;
+    yiq.i =  (0.595716 * r + -0.274453 * g + -0.321263 * b) * chroma_weight;
+    yiq.q =  (0.211456 * r + -0.522591 * g +  0.311135 * b) * chroma_weight;
 
-	return sqrt(t1 * t1 + t2 * t2 + t3 * t3);
+    return yiq;
 }
 
-void xterm2rgb(unsigned char color, unsigned char* rgb)
+double cie2000(color_lab lab1, color_lab lab2)
 {
-	if (color < 232)
-	{
-		color -= 16;
-		rgb[0] = valuerange[(color / 36) % 6];
-		rgb[1] = valuerange[(color / 6) % 6];
-		rgb[2] = valuerange[color % 6];
-	}
-	else
-		rgb[0] = rgb[1] = rgb[2] = 8 + (color - 232) * 10;
+    double c1 = sqrt(lab1.a * lab1.a + lab1.b * lab1.b);
+    double c2 = sqrt(lab2.a * lab2.a + lab2.b * lab2.b);
+
+    double h1 = atan2(lab1.b, lab1.a);
+    double h2 = atan2(lab2.b, lab2.a);
+
+    double al = (lab1.l + lab2.l) * 0.5;
+    double dl = lab2.l - lab1.l;
+
+    double ac = (c1 + c2) * 0.5;
+    double dc = c1 - c2;
+
+    double ah = (h1 + h2) * 0.5;
+
+    if (fabs(h1 - h2) > M_PI)
+        ah += M_PI;
+
+    double dh = h2 - h1;
+
+    if (fabs(dh) > M_PI)
+    {
+        if (h2 <= h1)
+            dh += M_PI * 2.0;
+        else
+            dh -= M_PI * 2.0;
+    }
+
+    dh = sqrt(c1 * c2) * sin(dh) * 2.0;
+
+    double t = 1.0 - 0.17 * cos(ah - M_PI / 6.0) + 0.24 * cos(ah * 2.0) + 0.32 * cos(ah * 3.0 + (M_PI / 30)) - 0.20 * cos(ah * 4.0 - (7.0 / 20.0 * M_PI));
+    double als = (al - 50.0) * (al - 50.0);
+    double sl = 1.0 + 0.015 * als / sqrt(20.0 + als);
+
+    double sc = 1.0 + 0.045 * ac;
+    double sh = 1.0 + 0.015 * ac * t;
+
+    double dt = ah / 25.0 - (11.0 / 180.0 * M_PI);
+    dt = M_PI / 6.0 * exp(dt * -dt);
+
+    double rt = pow(ac, 7);
+    rt = sqrt(rt / (rt + 6103515625)) * sin(dt) * -2;
+
+    dl /= sl;
+    dc /= sc;
+    dh /= sh;
+
+    return sqrt(dl * dl + dc * dc + dh * dh + rt * dc * dh);
 }
 
-unsigned long rgb2xterm_cie94(unsigned char r, unsigned char g, unsigned char b)
+color_rgba8 xterm2rgb(unsigned char color)
 {
-	unsigned long i = 16, ret = 0;
-	double d, smallest_distance = INFINITY;
-	double l, aa, bb;
+    color_rgba8 rgb;
 
-	srgb2lab(r, g, b, &l, &aa, &bb);
+    if (color < 232)
+    {
+        color -= 16;
+        rgb.r = valuerange[(color / 36) % 6];
+        rgb.g = valuerange[(color / 6) % 6];
+        rgb.b = valuerange[color % 6];
+    }
+    else
+        rgb.r = rgb.g = rgb.b = 8 + (color - 232) * 10;
 
-	for (; i < 256; i++)
-	{
-		d = cie94(l, aa, bb, labtable[i * 3], labtable[i * 3 + 1], labtable[i * 3 + 2]);
-		if (d < smallest_distance)
-		{
-			smallest_distance = d;
-			ret = i;
-		}
-	}
-
-	return ret;
+    return rgb;
 }
 
-unsigned long rgb2xterm_yiq(unsigned char r, unsigned char g, unsigned char b)
+unsigned char rgb2xterm_cie2000(color_rgba8 rgb)
 {
-	unsigned long i = 16, ret = 0;
-	double d, smallest_distance = INFINITY;
-	double y, ii, q;
+    unsigned long i = 16;
+    unsigned char ret = 0;
+    double d, smallest_distance = INFINITY;
+    color_lab lab = srgb2lab(rgb);
 
-	srgb2yiq(r, g, b, &y, &ii, &q);
+    for (; i < 256; i++)
+    {
+        d = cie2000(lab, labtable[i]);
+        if (d < smallest_distance)
+        {
+            smallest_distance = d;
+            ret = i;
+        }
+    }
 
-	for (; i < 256; i++)
-	{
-		d = (y - labtable[i * 3]) * (y - labtable[i * 3]) +
-			(ii - labtable[i * 3 + 1]) * (ii - labtable[i * 3 + 1]) +
-			(q - labtable[i * 3 + 2]) * (q - labtable[i * 3 + 2]);
-		if (d < smallest_distance)
-		{
-			smallest_distance = d;
-			ret = i;
-		}
-	}
-
-	return ret;
+    return ret;
 }
 
-unsigned long rgb2xterm(unsigned char r, unsigned char g, unsigned char b)
+unsigned char rgb2xterm_yiq(color_rgba8 rgb)
 {
-	unsigned long i = 16, d, ret = 0, smallest_distance = UINT_MAX;
+    unsigned long i = 16;
+    unsigned char ret = 0;
+    double d, smallest_distance = INFINITY;
+    color_yiq yiq = srgb2yiq(rgb);
 
-	for (; i < 256; i++)
-	{
-		d = (colortable[i * 3] - r) * (colortable[i * 3] - r) +
-			(colortable[i * 3 + 1] - g) * (colortable[i * 3 + 1] - g) +
-			(colortable[i * 3 + 2] - b) * (colortable[i * 3 + 2] - b);
-		if (d < smallest_distance)
-		{
-			smallest_distance = d;
-			ret = i;
-		}
-	}
+    for (; i < 256; i++)
+    {
+        d = (yiq.y - yiqtable[i].y) * (yiq.y - yiqtable[i].y) +
+            (yiq.i - yiqtable[i].i) * (yiq.i - yiqtable[i].i) +
+            (yiq.q - yiqtable[i].q) * (yiq.q - yiqtable[i].q);
+        if (d < smallest_distance)
+        {
+            smallest_distance = d;
+            ret = i;
+        }
+    }
 
-	return ret;
+    return ret;
 }
 
-void bifurcate(FILE* file, unsigned long color1, unsigned long color2, char* bstr)
+unsigned char rgb2xterm(color_rgba8 rgb)
 {
-	unsigned long fg = oldfg;
-	unsigned long bg = oldbg;
-	char* str = cowheader ? "\\N{U+2584}" : "\xe2\x96\x84";
+    unsigned long i = 16, d, smallest_distance = UINT_MAX;
+    unsigned char ret = 0;
 
-	if (color1 == color2)
-	{
-		bg = color1;
-		if (bstr && bg == color_transparent)
-		{
-			fg = color_undef;
-			str = bstr;
-		}
-		else
-			str = " ";
-	}
-	else
-		if (color2 == color_transparent)
-		{
-			str = cowheader ? "\\N{U+2580}" : "\xe2\x96\x80";
-			bg = color2;
-			fg = color1;
-		}
-		else
-		{
-			bg = color1;
-			fg = color2;
-		}
+    for (; i < 256; i++)
+    {
+        d = (rgbtable[i].r - rgb.r) * (rgbtable[i].r - rgb.r) +
+            (rgbtable[i].g - rgb.g) * (rgbtable[i].g - rgb.g) +
+            (rgbtable[i].b - rgb.b) * (rgbtable[i].b - rgb.b);
+        if (d < smallest_distance)
+        {
+            smallest_distance = d;
+            ret = i;
+        }
+    }
+
+    return ret;
+}
+
+void bifurcate(FILE* file, unsigned char color1, unsigned char color2, char* bstr)
+{
+    unsigned char fg = oldfg, bg = oldbg;
+    char* str = cowheader ? "\\N{U+2584}" : "\xe2\x96\x84";
+
+    if (color1 == color2)
+    {
+        bg = color1;
+        if (bstr && bg == color_transparent)
+        {
+            fg = color_undef;
+            str = bstr;
+        }
+        else
+            str = " ";
+    }
+    else
+        if (color2 == color_transparent)
+        {
+            str = cowheader ? "\\N{U+2580}" : "\xe2\x96\x80";
+            bg = color2;
+            fg = color1;
+        }
+        else
+        {
+            bg = color1;
+            fg = color2;
+        }
 
 #ifndef NO_CURSES
-	if (use_terminfo)
-	{
-		if (bg != oldbg)
-		{
-			if (bg == color_transparent)
-			{
-				fputs(ti_op, file);
-				oldfg = color_undef;
-			}
-			else
-				fputs(tparm(ti_setb, bg), file);
-		}
+    if (use_terminfo)
+    {
+        if (bg != oldbg)
+        {
+            if (bg == color_transparent)
+            {
+                fputs(ti_op, file);
+                oldfg = color_undef;
+            }
+            else
+                fputs(tparm(ti_setb, bg), file);
+        }
 
-		if (fg != oldfg)
-			fputs(tparm(ti_setf, fg), file);
-	}
-	else
+        if (fg != oldfg)
+            fputs(tparm(ti_setf, fg), file);
+    }
+    else
 #endif
-	if (bg != oldbg)
-	{
-		if (bg == color_transparent)
-			fputs(cowheader ? "\\e[49m" : "\e[49m", file);
-		else
-			fprintf(file, cowheader ? "\\e[48;5;%lum" : "\e[48;5;%lum", bg);
-	}
+    if (bg != oldbg)
+    {
+        if (bg == color_transparent)
+            fputs(cowheader ? "\\e[49m" : "\e[49m", file);
+        else
+            fprintf(file, cowheader ? "\\e[48;5;%um" : "\e[48;5;%um", bg);
+    }
 
-	if (fg != oldfg)
-	{
-		if (fg == color_undef)
-			fputs(cowheader ? "\\e[39m" : "\e[39m", file);
-		else
-			fprintf(file, cowheader ? "\\e[38;5;%lum" : "\e[38;5;%lum", fg);
-	}
+    if (fg != oldfg)
+    {
+        if (fg == color_undef)
+            fputs(cowheader ? "\\e[39m" : "\e[39m", file);
+        else
+            fprintf(file, cowheader ? "\\e[38;5;%um" : "\e[38;5;%um", fg);
+    }
 
-	oldbg = bg;
-	oldfg = fg;
+    oldbg = bg;
+    oldfg = fg;
 
-	fputs(str, file);
+    fputs(str, file);
 }
 
-unsigned long fillrow(PixelWand** pixels, unsigned long* row, unsigned long width)
+unsigned fillrow(unsigned char *pixels, unsigned char* row, unsigned width)
 {
-	unsigned long i = 0, lastpx = 0;
+    unsigned i = 0, length = 0;
+    color_rgba8 *colors = (color_rgba8 *) pixels;
 
-	switch (perceptive)
-	{
-		case 0:
-			for (; i < width; i ++)
-			{
-				if (PixelGetAlpha(pixels[i]) < 0.5)
-					row[i] = color_transparent;
-				else
-				{
-					row[i] = rgb2xterm(
-						(unsigned long)(PixelGetRed(pixels[i]) * 255.0),
-						(unsigned long)(PixelGetGreen(pixels[i]) * 255.0),
-						(unsigned long)(PixelGetBlue(pixels[i]) * 255.0));
-					lastpx = i;
-				}
-			}
-			break;
-		case 1:
-			for (; i < width; i ++)
-			{
-				if (PixelGetAlpha(pixels[i]) < 0.5)
-					row[i] = color_transparent;
-				else
-				{
-					row[i] = rgb2xterm_cie94(
-						(unsigned long)(PixelGetRed(pixels[i]) * 255.0),
-						(unsigned long)(PixelGetGreen(pixels[i]) * 255.0),
-						(unsigned long)(PixelGetBlue(pixels[i]) * 255.0));
-					lastpx = i;
-				}
-			}
-			break;
-		case 2:
-			for (; i < width; i ++)
-			{
-				if (PixelGetAlpha(pixels[i]) < 0.5)
-					row[i] = color_transparent;
-				else
-				{
-					row[i] = rgb2xterm_yiq(
-						(unsigned long)(PixelGetRed(pixels[i]) * 255.0),
-						(unsigned long)(PixelGetGreen(pixels[i]) * 255.0),
-						(unsigned long)(PixelGetBlue(pixels[i]) * 255.0));
-					lastpx = i;
-				}
-			}
-			break;
-	}
+    switch (perceptive)
+    {
+        case 0:
+            for (; i < width; i ++)
+            {
+                if(colors[i].a < 127)
+                    row[i] = color_transparent;
+                else
+                {
+                    row[i] = rgb2xterm(colors[i]);
+                    length = i + 1;
+                }
+            }
+            break;
+        case 1:
+            for (; i < width; i ++)
+            {
+                if(colors[i].a < 127)
+                    row[i] = color_transparent;
+                else
+                {
+                    row[i] = rgb2xterm_cie2000(colors[i]);
+                    length = i + 1;
+                }
+            }
+            break;
+        case 2:
+            for (; i < width; i ++)
+            {
+                if(colors[i].a < 127)
+                    row[i] = color_transparent;
+                else
+                {
+                    row[i] = rgb2xterm_yiq(colors[i]);
+                    length = i + 1;
+                }
+            }
+            break;
+    }
 
-	return lastpx + 1;
+    return length;
 }
 
 void usage(int ret, const char* binname)
 {
-	fprintf(ret ? stderr: stdout,
+    fprintf(ret ? stderr: stdout,
 "\
 Usage: %s [ options ] [ infile ] [ outfile ]\n\n\
 Convert bitmap images to 256 color block elements suitable for display in xterm\n\
@@ -322,6 +410,8 @@ and similar terminal emulators.\n\n\
 Options:\n\
   -c, --cow                   generate a cowfile header\n\
                               (default behavior if invoked as img2cow)\n\
+  -g, --gamma [value]         display gamma to be used when decoding\n\
+                              the image (default: 1.0)\n\
   -h, --help                  display this message\n"
 #ifndef NO_CURSES
 "\
@@ -332,8 +422,9 @@ Options:\n\
   -l, --stem-length [length]  length of the speech bubble stem when generating\n\
                               cowfiles (default: 4)\n\
   -m, --margin [width]        add a margin to the left of the image\n\
-  -p, --perceptive            use the CIE94 color difference formula for color\n\
-                              conversion instead of simple RGB linear distance\n\
+  -p, --perceptive            use the CIE2000 color difference formula for\n\
+                              color conversion instead of simple RGB linear\n\
+                              distance\n\
   -s, --stem-margin [width]   margin for the speech bubble stem when generating\n\
                               cowfiles (default: 11)\n\
   -t, --stem-continue         continue drawing the speech bubble stem into the\n\
@@ -356,306 +447,430 @@ Examples:\n\
   img2cow rms.png rms.cow     create a cowfile (assuming img2cow is a link to\n\
                               img2xterm)\n\
 "
-		, binname);
-	exit(ret);
+        , binname);
+    exit(ret);
 }
+
+#ifndef NO_CURSES
+int init_tinfo()
+{
+    if (setupterm(NULL, fileno(stdout), NULL))
+        return 0;
+
+    if (((ti_op = tigetstr("op")) == (void*)-1 &&
+        (ti_op = tigetstr("sgr0")) == (void*)-1) ||
+        (ti_setb = tigetstr("setb")) == (void*)-1 ||
+        (ti_setf = tigetstr("setf")) == (void*)-1 ||
+        !tparm(ti_setb, 255) ||
+        !tparm(ti_setf, 255))
+        return 0;
+
+    return 1;
+}
+#endif
 
 const char* basename2(const char* string)
 {
-	const char* ret = string;
-	for (; *string; string++)
+    const char* ret = string;
+    for (; *string; string++)
 #if defined(WIN32) || defined(_WIN32)
-		if (*string == '/' || *string == '\\')
+        if (*string == '/' || *string == '\\')
+#else
+        if (*string == '/')
 #endif
-		if (*string == '/')
-			ret = string + 1;
-	return ret;
+            ret = string + 1;
+    return ret;
 }
 
 int main(int argc, char** argv)
 {
-	const char stdin_str[] = "-", * infile = stdin_str, * outfile_str = NULL, * binname = *argv;
-	char c;
-	FILE* outfile = stdout;
+    const char stdin_str[] = "-", * infile = stdin_str, * outfile_str = NULL;
 
-	size_t width1, width2;
-	unsigned long i, j, * row1, * row2, color1, color2, lastpx1, lastpx2, margin = 0;
+    char c;
+    FILE* pngfile = NULL;
+    FILE* outfile = stdout;
 
-	int background = 0;
-	unsigned long stemlen = 4, stemmargin = 11;
+    int bit_depth, color_type, color_channels;
+    png_uint_32 row_width, image_rows, row_bytes, current_row;
+    unsigned long i, j, color1, color2, lastpx1, lastpx2;
+    unsigned char* row1, * row2;
+    double screen_gamma = 1.0;
+    double file_gamma = 1.0;
 
-	MagickWand* science;
-	PixelIterator* iterator;
-	PixelWand** pixels;
+    // Storage for PNG header
+    unsigned char png_header[PNG_HEADER_SIZE];
+    png_structp png;
+    png_infop pnginfo;
+    unsigned char *pixels;
 
-	cowheader = !memcmp(basename2(binname), "img2cow", 7);
+    binname = *argv;
+    cowheader = !memcmp(basename2(binname), "img2cow", 7);
 
-	while (*++argv)
-		if (**argv == '-')
-		{
-			while ((c = *++*argv))
-				switch (c)
-				{
-					case '-':
-						if (!strcmp("help", ++*argv))
-							usage(0, binname);
-						else if (!strcmp("cow", *argv))
-							cowheader = 1;
-						else if (!strcmp("stem-length", *argv))
-						{
-							if (!*++argv || !sscanf(*argv, "%lu", &stemlen))
-								usage(1, binname);
-						}
-						else if (!strcmp("perceptive", *argv))
-							perceptive = 1;
-						else if (!strcmp("margin", *argv))
-						{
-							if (!*++argv || !sscanf(*argv, "%lu", &margin))
-								usage(1, binname);
-						}
-						else if (!strcmp("stem-margin", *argv))
-						{
-							if (!*++argv || !sscanf(*argv, "%lu", &stemmargin))
-								usage(1, binname);
-						}
-						else if (!strcmp("stem-continue", *argv))
-							background = 1;
+    while (*++argv)
+        if (**argv == '-')
+        {
+            while ((c = *++*argv))
+                switch (c)
+                {
+                    case '-':
+                        if (!strcmp("help", ++*argv))
+                            usage(0, binname);
+                        else if (!strcmp("cow", *argv))
+                            cowheader = 1;
+                        else if (!strcmp("stem-length", *argv))
+                        {
+                            if (!*++argv || !sscanf(*argv, "%d", &stemlen))
+                                usage(1, binname);
+                        }
+                        else if (!strcmp("perceptive", *argv))
+                            perceptive = 1;
+                        else if (!strcmp("margin", *argv))
+                        {
+                            if (!*++argv || !sscanf(*argv, "%d", &margin))
+                                usage(1, binname);
+                        }
+                        else if (!strcmp("stem-margin", *argv))
+                        {
+                            if (!*++argv || !sscanf(*argv, "%d", &stemmargin))
+                                usage(1, binname);
+                        }
+                        else if (!strcmp("stem-continue", *argv))
+                            background = 1;
 #ifndef NO_CURSES
-						else if (!strcmp("terminfo", *argv))
-							use_terminfo = 1;
+                        else if (!strcmp("terminfo", *argv))
+                            use_terminfo = 1;
 #endif
-						else if (!strcmp("chroma-weight", *argv))
-						{
-							if (!*++argv || !sscanf(*argv, "%lf", &chroma_weight))
-								usage(1, binname);
-						}
-						else if (!strcmp("yiq", *argv))
-							perceptive = 2;
-						else
-						{
-							fprintf(stderr, "%s: unrecognised long option --%s\n", binname, *argv);
-							usage(1, binname);
-						}
-						goto nextarg;
-					case 'h':
-						usage(0, binname);
-						break;
-					case 'c':
-						cowheader = 1;
-						break;
+                        else if (!strcmp("chroma-weight", *argv))
+                        {
+                            if (!*++argv || !sscanf(*argv, "%lf", &chroma_weight))
+                                usage(1, binname);
+                        }
+                        else if(!strcmp("gamma", *argv))
+                        {
+                            if(!*++argv || !sscanf(*argv, "%lf", &screen_gamma))
+                                usage(1, binname);
+                        }
+                        else if (!strcmp("yiq", *argv))
+                            perceptive = 2;
+                        else
+                        {
+                            fprintf(stderr, "%s: unrecognised long option --%s\n", binname, *argv);
+                            usage(1, binname);
+                        }
+                        goto nextarg;
+                    case 'h':
+                        usage(0, binname);
+                        break;
+                    case 'c':
+                        cowheader = 1;
+                        break;
+                    case 'g':
+                        if(*++*argv || !*++argv || !sscanf(*argv, "%lf", &screen_gamma))
+                            usage(1, binname);
+                        goto nextarg;
 #ifndef NO_CURSES
-					case 'i':
-						use_terminfo = 1;
-						break;
+                    case 'i':
+                        use_terminfo = 1;
+                        break;
 #endif
-					case 'l':
-						if (*++*argv || !*++argv || !sscanf(*argv, "%lu", &stemlen))
-							usage(1, binname);
-						goto nextarg;
-					case 'm':
-						if (*++*argv || !*++argv || !sscanf(*argv, "%lu", &margin))
-							usage(1, binname);
-						goto nextarg;
-					case 'p':
-						perceptive = 1;
-						break;
-					case 's':
-						if (*++*argv || !*++argv || !sscanf(*argv, "%lu", &stemmargin))
-							usage(1, binname);
-						goto nextarg;
-					case 't':
-						background = 1;
-						break;
-					case 'w':
-						if (*++*argv || !*++argv || !sscanf(*argv, "%lf", &chroma_weight))
-							usage(1, binname);
-						goto nextarg;
-					case 'y':
-						perceptive = 2;
-						break;
-					default:
-						fprintf(stderr, "%s: unrecognised option -%c", binname, *--*argv);
-						usage(1, binname);
-				}
-			nextarg:
-			continue;
-		}
-		else if (infile == stdin_str)
-			infile = *argv;
-		else if (!outfile_str)
-			outfile_str = *argv;
-		else
-			usage(1, binname);
+                    case 'l':
+                        if (*++*argv || !*++argv || !sscanf(*argv, "%d", &stemlen))
+                            usage(1, binname);
+                        goto nextarg;
+                    case 'm':
+                        if (*++*argv || !*++argv || !sscanf(*argv, "%d", &margin))
+                            usage(1, binname);
+                        goto nextarg;
+                    case 'p':
+                        perceptive = 1;
+                        break;
+                    case 's':
+                        if (*++*argv || !*++argv || !sscanf(*argv, "%d", &stemmargin))
+                            usage(1, binname);
+                        goto nextarg;
+                    case 't':
+                        background = 1;
+                        break;
+                    case 'w':
+                        if (*++*argv || !*++argv || !sscanf(*argv, "%lf", &chroma_weight))
+                            usage(1, binname);
+                        goto nextarg;
+                    case 'y':
+                        perceptive = 2;
+                        break;
+                    default:
+                        fprintf(stderr, "%s: unrecognised option -%c", binname, *--*argv);
+                        usage(1, binname);
+                }
+            nextarg:
+            continue;
+        }
+        else if (infile == stdin_str)
+            infile = *argv;
+        else if (!outfile_str)
+            outfile_str = *argv;
+        else
+            usage(1, binname);
 
-	if (!cowheader && background == 1)
-		background = 0;
+    if (!cowheader && background == 1)
+        background = 0;
 
 #ifndef NO_CURSES
-	if (use_terminfo)
-	{
-		if (setupterm(NULL, fileno(stdout), NULL))
-			return 5;
-		if (((ti_op = tigetstr("op")) == (void*)-1 &&
-			(ti_op = tigetstr("sgr0")) == (void*)-1) ||
-			(ti_setb = tigetstr("setb")) == (void*)-1 ||
-			(ti_setf = tigetstr("setf")) == (void*)-1 ||
-			!tparm(ti_setb, 255) ||
-			!tparm(ti_setf, 255))
-		{
-			fprintf(stderr,
-				"%s: terminal doesn't support required features\n", binname);
-			return 5;
-		}
-	}
+    if (use_terminfo)
+        if (!init_tinfo())
+        {
+            fprintf(stderr, "%s: terminal doesn't support required features\n", binname);
+            return 5;
+        }
 #endif
 
-	MagickWandGenesis();
-	atexit(MagickWandTerminus);
-	science = NewMagickWand();
+    // Don't set error data, error callback and warning callback
+    png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
 
-	if (!MagickReadImage(science, infile))
-	{
-		DestroyMagickWand(science);
-		fprintf(stderr, "%s: couldn't open input file %s\n", binname, infile == stdin_str ? "<stdin>" : infile);
-		return 3;
-	}
+    if(!png)
+    {
+        fprintf(stderr, "%s: failed to initialize libpng.\n", binname);
+        return 3;
+    }
 
-	if (!(iterator = NewPixelIterator(science)))
-	{
-		DestroyMagickWand(science);
-		fprintf(stderr, "%s: out of memory\n", binname);
-		return 4;
-	}
+    pnginfo = png_create_info_struct(png);
 
-	if (outfile_str && !(outfile = fopen(outfile_str, "w")))
-	{
-		fprintf(stderr, "%s: couldn't open output file %s\n", binname, outfile_str);
-		return 2;
-	}
+    atexit(png_cleanup);
 
-	if (perceptive)
-	{
-		unsigned char rgb[3];
-		double l, a, b;
+    if(!pnginfo)
+    {
+        fprintf(stderr, "%s: failed to initilize libpng.\n", binname);
+        return 3;
+    }
 
-		labtable = malloc(256 * 3 * sizeof(double));
-		for (i = 16; i < 256; i ++)
-		{
-			xterm2rgb(i, rgb);
-			if (perceptive == 1)
-				srgb2lab(rgb[0], rgb[1], rgb[2], &l, &a, &b);
-			else
-				srgb2yiq(rgb[0], rgb[1], rgb[2], &l, &a, &b);
-			labtable[i * 3] = l;
-			labtable[i * 3 + 1] = a;
-			labtable[i * 3 + 2] = b;
-		}
-	}
-	else
-	{
-		colortable = malloc(256 * 3 * sizeof(unsigned char));
-		for (i = 16; i < 256; i ++)
-			xterm2rgb(i, colortable + i * 3);
-	}
-	if (cowheader)
-	{
-		fputs("binmode STDOUT, \":utf8\";\n$the_cow =<<EOC;\n", outfile);
-		for (i = 0; i < stemlen; stemmargin ++, i ++)
-		{
-			for (j = 0; j < stemmargin; j ++)
-				fputc(' ', outfile);
-			fputs("$thoughts\n", outfile);
-		}
-	}
+    if(!(pngfile = fopen(infile, "rb")))
+    {
+        fprintf(stderr, "%s: couldn't open input file %s\n", binname, infile == stdin_str ? "<stdin>" : infile);
+        return 3;
+    }
 
-	pixels = PixelGetNextIteratorRow(iterator, &width1);
-	while (pixels)
-	{
-		row1 = malloc(width1 * sizeof(unsigned long));
-		lastpx1 = fillrow(pixels, row1, width1);
+    if(fread(png_header, 1, PNG_HEADER_SIZE, pngfile) != 8)
+    {
+        fprintf(stderr, "%s: coudn't read PNG header from %s\n", binname, infile == stdin_str ? "<stdin>" : infile);
+        return 3;
+    }
 
-		if ((pixels = PixelGetNextIteratorRow(iterator, &width2)))
-		{
-			row2 = malloc(width2 * sizeof(unsigned long));
-			lastpx2 = fillrow(pixels, row2, width2);
-			if (lastpx2 > lastpx1)
-				lastpx1 = lastpx2;
-		}
-		else
-			row2 = NULL;
+    if(png_sig_cmp(png_header, 0, PNG_HEADER_SIZE))
+    {
+        fprintf(stderr, "%s: %s is not a valid PNG file.\n", binname, infile == stdin_str ? "<stdin>" : infile);
+        return 3;
+    }
 
-		for (i = 0; i < margin; i ++)
-			if (background && i == stemmargin)
-				bifurcate(outfile, color_transparent, color_transparent, "$thoughts");
-			else
-				fputc(' ', outfile);
+    // libpng "exception" handling
+    if(setjmp(png_jmpbuf(png)))
+    {
+        if(pngfile) fclose(pngfile);
 
-		if (background == 1 && lastpx1 < stemmargin + 1)
-			lastpx1 = stemmargin + 1;
+        fprintf(stderr, "%s: libpng error.\n", binname);
+        return -1;
+    }
 
-		for (i = 0; i < lastpx1; i ++)
-		{
-			color1 = i < width1 ? row1[i] : color_transparent;
-			color2 = i < width2 ? row2 ? row2[i] : color_transparent : color_transparent;
-			if (background == 1)
-			{
-				if (i + margin == stemmargin)
-				{
-					if (color1 == color_transparent && color2 == color_transparent)
-					{
-						bifurcate(outfile, color1, color2, "$thoughts");
-						continue;
-					}
-					else
-						background = 0;
-				}
-				else if (i + margin == stemmargin + 1 && (color1 != color_transparent || color2 != color_transparent))
-					background = 0;
-			}
-			bifurcate(outfile, color1, color2, NULL);
-		}
+    // Initalize I/O and skip header bytes
+    png_init_io(png, pngfile);
+    png_set_sig_bytes(png, PNG_HEADER_SIZE);
 
-		free(row1);
-		if (row2)
-			free(row2);
+    png_read_info(png, pnginfo);
+    png_get_IHDR(png, pnginfo, &row_width, &image_rows, &bit_depth, &color_type, NULL, NULL, NULL);
 
-		if ((pixels = PixelGetNextIteratorRow(iterator, &width1)))
+    // libpng input transformations
+    // Convert palette to rgb
+    if(color_type == PNG_COLOR_TYPE_PALETTE)
+        png_set_palette_to_rgb(png);
+    // Convert greyscale to rgb
+    if(color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8)
+        png_set_expand_gray_1_2_4_to_8(png);
+    // Convert transparent image to full alpha channel
+    if(png_get_valid(png, pnginfo, PNG_INFO_tRNS))
+        png_set_tRNS_to_alpha(png);
+    // Convert 16 bit image to 8 bits
+    if(bit_depth == 16)
+        png_set_strip_16(png);
+    // Pack small bit depths properly
+    if(bit_depth < 8)
+        png_set_packing(png);
+    // Convert RGB into RGBA
+    if(color_type == PNG_COLOR_TYPE_RGB || color_type == PNG_COLOR_TYPE_GRAY)
+        png_set_add_alpha(png, 0xff, PNG_FILLER_AFTER);
+
+    // Gamma adjustment
+    png_get_gAMA(png, pnginfo, &file_gamma);
+    png_set_gamma(png, screen_gamma, file_gamma);
+
+    // Interlace handling
+    png_set_interlace_handling(png);
+
+    // Update reader data
+    png_read_update_info(png, pnginfo);
+
+    row_bytes = png_get_rowbytes(png, pnginfo);
+    color_channels = png_get_channels(png, pnginfo);
+
+    if(color_channels != 4)
+    {
+        fprintf(stderr, "%s: got %d color channels instead of 4.\n", binname, color_channels);
+        return 3;
+    }
+
+    if (outfile_str && !(outfile = fopen(outfile_str, "w")))
+    {
+        fprintf(stderr, "%s: couldn't open output file %s\n", binname, outfile_str);
+        return 2;
+    }
+
+    switch (perceptive)
+    {
+        case 0:
+            rgbtable = malloc(256 * sizeof(color_rgba8));
+            for (i = 16; i < 256; i ++)
+                rgbtable[i] = xterm2rgb(i);
+            break;
+        case 1:
+            labtable = malloc(256 * sizeof(color_lab));
+            for (i = 16; i < 256; i ++)
+                labtable[i] = srgb2lab(xterm2rgb(i));
+            break;
+        case 2:
+            yiqtable = malloc(256 * sizeof(color_yiq));
+            for (i = 16; i < 256; i ++)
+                yiqtable[i] = srgb2yiq(xterm2rgb(i));
+            break;
+    }
+
+    if (cowheader)
+    {
+        fputs("binmode STDOUT, \":utf8\";\n$the_cow =<<EOC;\n", outfile);
+        for (i = 0; i < stemlen; stemmargin ++, i ++)
+        {
+            for (j = 0; j < stemmargin; j ++)
+                fputc(' ', outfile);
+            fputs("$thoughts\n", outfile);
+        }
+    }
+
+    current_row = 0;
+    pixels = malloc(row_bytes);
+    if(!pixels)
+    {
+        fprintf(stderr, "%s: out of memory\n", binname);
+        return 4;
+    }
+
+    png_read_row(png, pixels, NULL);
+
+    while (current_row < image_rows)
+    {
+        row1 = malloc(row_width * sizeof(unsigned char));
+        lastpx1 = fillrow(pixels, row1, row_width);
+        current_row++;
+
+        if (current_row < image_rows)
+        {
+            png_read_row(png, pixels, NULL);
+            row2 = malloc(row_width * sizeof(unsigned char));
+            lastpx2 = fillrow(pixels, row2, row_width);
+            if (lastpx2 > lastpx1)
+                lastpx1 = lastpx2;
+            current_row++;
+        }
+        else
+            row2 = NULL;
+
+        for (i = 0; i < margin; i ++)
+            if (background && i == stemmargin)
+                bifurcate(outfile, color_transparent, color_transparent, "$thoughts");
+            else
+                fputc(' ', outfile);
+
+        if (background == 1 && lastpx1 < stemmargin + 1)
+            lastpx1 = stemmargin + 1;
+
+        for (i = 0; i < lastpx1; i ++)
+        {
+            color1 = i < row_width ? row1[i] : color_transparent;
+            color2 = i < row_width ? row2 ? row2[i] : color_transparent : color_transparent;
+            if (background == 1)
+            {
+                if (i + margin == stemmargin)
+                {
+                    if (color1 == color_transparent && color2 == color_transparent)
+                    {
+                        bifurcate(outfile, color1, color2, "$thoughts");
+                        continue;
+                    }
+                    else
+                        background = 0;
+                }
+                else if (i + margin == stemmargin + 1 && (color1 != color_transparent || color2 != color_transparent))
+                    background = 0;
+            }
+            bifurcate(outfile, color1, color2, NULL);
+        }
+
+        free(row1);
+        if (row2)
+            free(row2);
+
+        if (current_row < image_rows)
+        {
+            png_read_row(png, pixels, NULL);
 #ifndef NO_CURSES
-			if (use_terminfo)
-			{
-				fprintf(outfile, "%s\n", ti_op);
-				oldbg = color_transparent;
-				oldfg = color_undef;
-			}
-			else
+            if (use_terminfo)
+            {
+                fprintf(outfile, "%s\n", ti_op);
+                oldbg = color_transparent;
+                oldfg = color_undef;
+            }
+            else
 #endif
-			if (oldbg != color_transparent)
-			{
-				fputs(cowheader ? "\\e[49m\n" : "\e[49m\n", outfile);
-				oldbg = color_transparent;
-			}
-			else
-				fputc('\n', outfile);
+            if (oldbg != color_transparent)
+            {
+                fputs(cowheader ? "\\e[49m\n" : "\e[49m\n", outfile);
+                oldbg = color_transparent;
+            }
+            else
+                fputc('\n', outfile);
+        }
 #ifndef NO_CURSES
-		else if (use_terminfo)
-			fprintf(outfile, "%s\n", ti_op);
+        else if (use_terminfo)
+            fprintf(outfile, "%s\n", ti_op);
 #endif
-		else if (oldbg == color_transparent)
-			fputs(cowheader ? "\\e[39m\n" : "\e[39m\n", outfile);
-		else
-			fputs(cowheader ? "\\e[39;49m\n" : "\e[39;49m\n", outfile);
+        else if (oldbg == color_transparent)
+            fputs(cowheader ? "\\e[39m\n" : "\e[39m\n", outfile);
+        else
+            fputs(cowheader ? "\\e[39;49m\n" : "\e[39;49m\n", outfile);
 
-		stemmargin ++;
-	}
+        stemmargin ++;
+    }
 
-	if (cowheader)
-		fputs("\nEOC\n", outfile);
+    if (cowheader)
+        fputs("\nEOC\n", outfile);
 
-	DestroyPixelIterator(iterator);
-	DestroyMagickWand(science);
-	free(colortable);
-	if (outfile != stdout)
-		fclose(outfile);
+    switch (perceptive)
+    {
+        case 0:
+            free(rgbtable);
+            break;
+        case 1:
+            free(labtable);
+            break;
+        case 2:
+            free(yiqtable);
+            break;
+    }
 
-	return 0;
+    png_read_end(png, NULL);
+    png_destroy_read_struct(&png, &pnginfo, NULL);
+
+    free(pixels);
+
+    fclose(pngfile);
+    if (outfile != stdout)
+        fclose(outfile);
+
+    return 0;
 }
