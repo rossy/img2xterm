@@ -18,15 +18,15 @@ xterm. Modification was needed in order to fix the range of the grey ramp.
 [1]: http://srsfckn.biz/cows/img2cow.c
 [2]: http://www.nog.net/~tony/warez/cowsay.shtml
 [3]: http://frexx.de/xterm-256-notes
-
 Dependencies
 ------------
 
 Before compilation, make sure you have development versions of [ImageMagick]
-[4] (for MagickWand) and [Ncurses] [5] (for terminfo support.)
+[4] (for MagickWand), [Ncurses] [5] (for terminfo support), and [pkg-config] [6] (required to properly link MagickWand).
 
 [4]: http://www.imagemagick.org
 [5]: http://www.gnu.org/software/ncurses/ncurses.html
+[6]: https://freedesktop.org/wiki/Software/pkg-config/
 
 Getting img2xterm
 -----------------
@@ -46,7 +46,6 @@ Getting img2xterm
     $ cp xterm-256color.gpl ~/.gimp-2.6/palettes/
 
 [6]: http://www.gimp.org
-
 Converting images
 -----------------
 
@@ -65,11 +64,10 @@ Converting images
 Known issues
 ------------
 
- * There is something wrong with the implementation of [CIE94 delta-E] [8].
- * ImageMagick can be glitchy. Perhaps using libpng would be a better idea.
+* There is something wrong with the implementation of [CIE94 delta-E] [8].
+* ImageMagick can be glitchy. Perhaps using libpng would be a better idea.
 
 [8]: https://en.wikipedia.org/wiki/Color_difference#CIE94
-
 Copying
 -------
 

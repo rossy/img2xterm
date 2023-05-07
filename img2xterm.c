@@ -15,7 +15,7 @@
 #include <string.h>
 #include <limits.h>
 #include <math.h>
-#include <wand/MagickWand.h>
+#include <MagickWand/MagickWand.h>
 
 #ifndef NO_CURSES
 #include <term.h>
